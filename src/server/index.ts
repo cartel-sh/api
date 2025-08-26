@@ -9,7 +9,6 @@ import channelSettings from "./routes/channel-settings";
 import applications from "./routes/applications";
 import users from "./routes/users";
 
-// Load environment variables
 config();
 
 const app = new Hono();
@@ -18,14 +17,22 @@ const app = new Hono();
 app.use("*", cors());
 app.use("*", logger());
 
-// Optional API key authentication middleware
+// API key authentication middleware (required)
 app.use("/api/*", async (c, next) => {
   const apiKey = c.req.header("X-API-Key");
-  const expectedKey = process.env.API_KEY;
+  const expectedKey = process.env.API_KEY || Bun.env?.API_KEY;
   
-  // If API_KEY is set in env, require it
-  if (expectedKey && apiKey !== expectedKey) {
-    return c.json({ error: "Unauthorized" }, 401);
+  if (!expectedKey) {
+    console.error("WARNING: API_KEY not set in environment variables. API is unprotected!");
+    return c.json({ error: "Server configuration error: API_KEY not set" }, 500);
+  }
+  
+  if (!apiKey) {
+    return c.json({ error: "Missing API key. Please provide X-API-Key header" }, 401);
+  }
+  
+  if (apiKey !== expectedKey) {
+    return c.json({ error: "Invalid API key" }, 401);
   }
   
   await next();
@@ -67,9 +74,9 @@ app.onError((err, c) => {
 const port = Number(process.env.PORT || Bun.env?.PORT) || 3003;
 
 console.log(`Starting server on port ${port}...`);
-console.log(`🚀 Server is running on http://localhost:${port}`);
-console.log(`📚 API documentation: http://localhost:${port}/`);
-console.log(`🏥 Health check: http://localhost:${port}/health`);
+console.log(`Server is running on http://localhost:${port}`);
+// console.log(`API documentation: http://localhost:${port}/`);
+// console.log(`Health check: http://localhost:${port}/health`);
 
 export default {
   port,
