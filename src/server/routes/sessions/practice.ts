@@ -212,12 +212,104 @@ app.get("/stats/weekly/discord/:discordId", async (c) => {
   }
 });
 
+// GET /api/sessions/practice/stats/weekly/user/:userId
+app.get("/stats/weekly/user/:userId", async (c) => {
+  const userId = c.req.param("userId");
+  
+  try {
+    const today = DateTime.now();
+    const weekAgo = today.minus({ days: 6 });
+    const startDate = weekAgo.toFormat("yyyy-MM-dd");
+    const endDate = today.toFormat("yyyy-MM-dd");
+
+    const results = await db
+      .select({
+        date: practiceSessions.date,
+        totalDuration: sqlExpr<number>`COALESCE(SUM(${practiceSessions.duration}), 0)`,
+      })
+      .from(practiceSessions)
+      .where(
+        and(
+          eq(practiceSessions.userId, userId),
+          gte(practiceSessions.date, startDate),
+          lte(practiceSessions.date, endDate),
+        ),
+      )
+      .groupBy(practiceSessions.date);
+
+    // Initialize stats for all 7 days
+    const statsMap: Record<string, number> = {};
+    for (let i = 0; i < 7; i++) {
+      const date = weekAgo.plus({ days: i }).toFormat("yyyy-MM-dd");
+      statsMap[date] = 0;
+    }
+
+    // Fill in actual data
+    for (const result of results) {
+      if (result.date) {
+        statsMap[result.date] = Number(result.totalDuration) || 0;
+      }
+    }
+
+    return c.json(statsMap);
+  } catch (error) {
+    console.error("[API] Error getting weekly stats:", error);
+    return c.json({ error: "Failed to get weekly stats" }, 500);
+  }
+});
+
 // GET /api/sessions/practice/stats/monthly/discord/:discordId
 app.get("/stats/monthly/discord/:discordId", async (c) => {
   const discordId = c.req.param("discordId");
   
   try {
     const userId = await getUserByDiscordId(discordId);
+    const now = DateTime.now();
+    const startOfMonth = now.startOf("month").toFormat("yyyy-MM-dd");
+    const endOfMonth = now.endOf("month").toFormat("yyyy-MM-dd");
+
+    const results = await db
+      .select({
+        date: practiceSessions.date,
+        totalDuration: sqlExpr<number>`COALESCE(SUM(${practiceSessions.duration}), 0)`,
+      })
+      .from(practiceSessions)
+      .where(
+        and(
+          eq(practiceSessions.userId, userId),
+          gte(practiceSessions.date, startOfMonth),
+          lte(practiceSessions.date, endOfMonth),
+        ),
+      )
+      .groupBy(practiceSessions.date);
+
+    // Initialize stats for all days in month
+    const statsMap: Record<string, number> = {};
+    const daysInMonth = now.daysInMonth;
+    for (let i = 1; i <= daysInMonth; i++) {
+      const date = now.set({ day: i }).toFormat("yyyy-MM-dd");
+      statsMap[date] = 0;
+    }
+
+    // Fill in actual data
+    for (const result of results) {
+      if (result.date) {
+        statsMap[result.date] = Number(result.totalDuration) || 0;
+      }
+    }
+
+    return c.json(statsMap);
+  } catch (error) {
+    console.error("[API] Error getting monthly stats:", error);
+    return c.json({ error: "Failed to get monthly stats" }, 500);
+  }
+});
+
+// GET /api/sessions/practice/stats/monthly/user/:userId
+app.get("/stats/monthly/user/:userId", async (c) => {
+  const userId = c.req.param("userId");
+  
+  try {
     const now = DateTime.now();
     const startOfMonth = now.startOf("month").toFormat("yyyy-MM-dd");
     const endOfMonth = now.endOf("month").toFormat("yyyy-MM-dd");

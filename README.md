@@ -104,38 +104,49 @@ All API endpoints require the `X-API-Key` header with a valid API key.
 - `DELETE /api/admin/keys/{keyId}` - Deactivate an API key
 - `POST /api/admin/keys/{keyId}/rotate` - Rotate an API key with grace period
 
-### Vanishing Channels
-- `GET /api/vanishing-channels` - List all vanishing channels
-- `GET /api/vanishing-channels?guildId={id}` - List channels for a guild
-- `GET /api/vanishing-channels/{channelId}` - Get specific channel
-- `POST /api/vanishing-channels` - Create/update vanishing channel
-- `DELETE /api/vanishing-channels/{channelId}` - Remove vanishing channel
-- `PATCH /api/vanishing-channels/{channelId}/stats` - Update deletion stats
+### Discord - Vanishing Channels
+- `GET /api/discord/vanish` - List all vanishing channels
+- `GET /api/discord/vanish?guildId={id}` - List channels for a guild
+- `GET /api/discord/vanish/{channelId}` - Get specific channel
+- `POST /api/discord/vanish` - Create/update vanishing channel
+- `DELETE /api/discord/vanish/{channelId}` - Remove vanishing channel
+- `PATCH /api/discord/vanish/{channelId}/stats` - Update deletion stats
+
+### Discord - Channel Settings
+- `GET /api/discord/channels/{guildId}` - List all channel settings for a guild
+- `GET /api/discord/channels/{guildId}/{key}` - Get specific channel setting (e.g., voice, text, alerts)
+- `PUT /api/discord/channels/{guildId}/{key}` - Create/update channel setting
+- `DELETE /api/discord/channels/{guildId}/{key}` - Delete specific channel setting
+- `DELETE /api/discord/channels/{guildId}` - Delete all channel settings for a guild
 
 ### Practice Sessions
-- `GET /api/practice-sessions` - List all practice sessions
-- `GET /api/practice-sessions?userId={id}` - List sessions for a user
-- `GET /api/practice-sessions/{sessionId}` - Get specific session
-- `POST /api/practice-sessions` - Create practice session
-- `PATCH /api/practice-sessions/{sessionId}` - Update session
-- `DELETE /api/practice-sessions/{sessionId}` - Delete session
-
-### Channel Settings
-- `GET /api/channel-settings` - List all channel settings
-- `GET /api/channel-settings/{channelId}` - Get channel settings
-- `POST /api/channel-settings` - Create/update channel settings
-- `DELETE /api/channel-settings/{channelId}` - Delete channel settings
+- `POST /api/sessions/practice/start` - Start a practice session (accepts discordId or userId)
+- `POST /api/sessions/practice/stop` - Stop a practice session (accepts discordId or userId)
+- `GET /api/sessions/practice/stats/daily/discord/{discordId}` - Get daily stats by Discord ID
+- `GET /api/sessions/practice/stats/daily/user/{userId}` - Get daily stats by user UUID
+- `GET /api/sessions/practice/stats/weekly/discord/{discordId}` - Get weekly stats by Discord ID
+- `GET /api/sessions/practice/stats/weekly/user/{userId}` - Get weekly stats by user UUID
+- `GET /api/sessions/practice/stats/monthly/discord/{discordId}` - Get monthly stats by Discord ID
+- `GET /api/sessions/practice/stats/monthly/user/{userId}` - Get monthly stats by user UUID
+- `GET /api/sessions/practice/leaderboard` - Get top users leaderboard
+- `GET /api/sessions/practice/total-hours` - Get total tracked hours
 
 ### Applications
-- `GET /api/applications` - List all applications
-- `GET /api/applications/{applicationId}` - Get specific application
-- `POST /api/applications` - Create application
-- `PATCH /api/applications/{applicationId}` - Update application
-- `DELETE /api/applications/{applicationId}` - Delete application
+- `GET /api/users/applications` - List all applications
+- `GET /api/users/applications/pending` - List pending applications
+- `GET /api/users/applications/by-message/{messageId}` - Get application by message ID
+- `GET /api/users/applications/by-number/{number}` - Get application by number
+- `GET /api/users/applications/{applicationId}` - Get specific application
+- `POST /api/users/applications` - Create application
+- `PATCH /api/users/applications/{applicationId}/status` - Update application status
+- `DELETE /api/users/applications/{applicationId}` - Delete application
+- `POST /api/users/applications/{applicationId}/votes` - Add vote to application
+- `GET /api/users/applications/{applicationId}/votes` - Get application votes
 
 ### Users
 - `GET /api/users` - List all users
 - `GET /api/users/{userId}` - Get specific user
+- `GET /api/users/by-discord/{discordId}` - Get user by Discord ID
 - `POST /api/users` - Create/update user
 - `DELETE /api/users/{userId}` - Delete user
 
@@ -159,11 +170,19 @@ await client.setVanishingChannel(
   3600 // duration in seconds
 );
 
-// Example: Get all vanishing channels
-const channels = await client.getVanishingChannels();
+// Example: Set a Discord channel setting
+await client.setChannel('guild-id', 'voice', 'channel-id');
+await client.setChannel('guild-id', 'text', 'channel-id');
 
-// Example: Remove a vanishing channel
-await client.removeVanishingChannel('channel-id');
+// Example: Start a practice session with Discord ID
+await client.startSession({ discordId: 'discord-id-here' });
+
+// Example: Start a practice session with user UUID
+await client.startSession({ userId: 'user-uuid-here' });
+
+// Example: Get practice stats
+const dailyStats = await client.getDailyStats('discord-id');
+const weeklyStats = await client.getWeeklyStatsByUserId('user-uuid');
 ```
 
 ### cURL Examples
@@ -200,18 +219,26 @@ curl -X DELETE http://localhost:3003/api/admin/keys/{keyId} \
 
 ```bash
 # Get all vanishing channels
-curl -X GET http://localhost:3003/api/vanishing-channels \
+curl -X GET http://localhost:3003/api/discord/vanish \
   -H "X-API-Key: cartel_your-api-key-here"
 
 # Create a vanishing channel
-curl -X POST http://localhost:3003/api/vanishing-channels \
+curl -X POST http://localhost:3003/api/discord/vanish \
   -H "X-API-Key: cartel_your-api-key-here" \
   -H "Content-Type: application/json" \
   -d '{"channelId": "123", "guildId": "456", "duration": 3600}'
 
-# Delete a vanishing channel
-curl -X DELETE http://localhost:3003/api/vanishing-channels/123 \
-  -H "X-API-Key: cartel_your-api-key-here"
+# Set a channel setting
+curl -X PUT http://localhost:3003/api/discord/channels/guild-id/voice \
+  -H "X-API-Key: cartel_your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{"channelId": "channel-id-here"}'
+
+# Start a practice session
+curl -X POST http://localhost:3003/api/sessions/practice/start \
+  -H "X-API-Key: cartel_your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{"discordId": "discord-id-here", "notes": "Practice notes"}'
 ```
 
 ## Building for Production
@@ -244,6 +271,10 @@ curl http://localhost:3003/health
 │   ├── server/          # API server code
 │   │   ├── index.ts     # Server entry point
 │   │   └── routes/      # API route handlers
+│   │       ├── discord/ # Discord-related routes
+│   │       ├── sessions/# Session management routes
+│   │       ├── users/   # User-related routes
+│   │       └── admin/   # Admin routes
 │   ├── schema.ts        # Database schema definitions
 │   ├── client.ts        # Database client setup
 │   └── migrate.ts       # Migration runner
