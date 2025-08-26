@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { desc, eq, sql } from "drizzle-orm";
-import { db, applications, applicationVotes } from "../../client";
+import { db, applications, applicationVotes } from "../../../client";
 
 const app = new Hono();
 

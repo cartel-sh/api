@@ -22,6 +22,13 @@
       "when": 1756193947654,
       "tag": "0002_organic_emma_frost",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1756201521929,
+      "tag": "0003_tricky_morlun",
+      "breakpoints": true
     }
   ]
 }

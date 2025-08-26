@@ -106,13 +106,25 @@ export const practiceSessionsRelations = relations(
   }),
 );
 
-export const channelSettings = pgTable("channel_settings", {
-  guildId: text("guild_id").primaryKey(),
-  voiceChannelId: text("voice_channel_id").notNull(),
-  textChannelId: text("text_channel_id").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+export const channelSettings = pgTable(
+  "channel_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guildId: text("guild_id").notNull(),
+    key: text("key").notNull(), // e.g., 'voice', 'text', 'alerts', etc.
+    channelId: text("channel_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => {
+    return {
+      guildKeyIdx: index("channel_settings_guild_key_idx").on(
+        table.guildId,
+        table.key,
+      ),
+    };
+  },
+);
 
 export interface User extends InferSelectModel<typeof users> {}
 export interface NewUser extends InferInsertModel<typeof users> {}

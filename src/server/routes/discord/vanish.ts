@@ -2,8 +2,8 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
-import { db, vanishingChannels } from "../../client";
-import type { VanishingChannel } from "../../schema";
+import { db, vanishingChannels } from "../../../client";
+import type { VanishingChannel } from "../../../schema";
 
 const app = new Hono();
 

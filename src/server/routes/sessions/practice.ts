@@ -3,27 +3,37 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { and, desc, eq, gte, isNull, lte, sql as sqlExpr } from "drizzle-orm";
 import { DateTime } from "luxon";
-import { db, practiceSessions, userIdentities, users } from "../../client";
-import type { PracticeSession } from "../../schema";
-import { getUserByDiscordId } from "../utils";
+import { db, practiceSessions, userIdentities, users } from "../../../client";
+import type { PracticeSession } from "../../../schema";
+import { getUserByDiscordId } from "../../utils";
 
 const app = new Hono();
 
-// POST /api/practice-sessions/start
+// POST /api/sessions/practice/start
 app.post(
   "/start",
   zValidator(
     "json",
     z.object({
-      discordId: z.string(),
+      discordId: z.string().optional(),
+      userId: z.string().uuid().optional(),
       notes: z.string().optional(),
+    }).refine(data => data.discordId || data.userId, {
+      message: "Either discordId or userId must be provided",
     }),
   ),
   async (c) => {
-    const { discordId, notes } = c.req.valid("json");
+    const { discordId, userId: providedUserId, notes } = c.req.valid("json");
     
     try {
-      const userId = await getUserByDiscordId(discordId);
+      let userId: string;
+      if (providedUserId) {
+        userId = providedUserId;
+      } else if (discordId) {
+        userId = await getUserByDiscordId(discordId);
+      } else {
+        return c.json({ error: "Either discordId or userId must be provided" }, 400);
+      }
 
       // Check for existing active session
       const activeSession = await db.query.practiceSessions.findFirst({
@@ -54,20 +64,30 @@ app.post(
   },
 );
 
-// POST /api/practice-sessions/stop
+// POST /api/sessions/practice/stop
 app.post(
   "/stop",
   zValidator(
     "json",
     z.object({
-      discordId: z.string(),
+      discordId: z.string().optional(),
+      userId: z.string().uuid().optional(),
+    }).refine(data => data.discordId || data.userId, {
+      message: "Either discordId or userId must be provided",
     }),
   ),
   async (c) => {
-    const { discordId } = c.req.valid("json");
+    const { discordId, userId: providedUserId } = c.req.valid("json");
     
     try {
-      const userId = await getUserByDiscordId(discordId);
+      let userId: string;
+      if (providedUserId) {
+        userId = providedUserId;
+      } else if (discordId) {
+        userId = await getUserByDiscordId(discordId);
+      } else {
+        return c.json({ error: "Either discordId or userId must be provided" }, 400);
+      }
 
       // Find active session
       const activeSession = await db.query.practiceSessions.findFirst({
@@ -100,8 +120,8 @@ app.post(
   },
 );
 
-// GET /api/practice-sessions/stats/daily/:discordId
-app.get("/stats/daily/:discordId", async (c) => {
+// GET /api/sessions/practice/stats/daily/discord/:discordId
+app.get("/stats/daily/discord/:discordId", async (c) => {
   const discordId = c.req.param("discordId");
   
   try {
@@ -123,8 +143,30 @@ app.get("/stats/daily/:discordId", async (c) => {
   }
 });
 
-// GET /api/practice-sessions/stats/weekly/:discordId
-app.get("/stats/weekly/:discordId", async (c) => {
+// GET /api/sessions/practice/stats/daily/user/:userId
+app.get("/stats/daily/user/:userId", async (c) => {
+  const userId = c.req.param("userId");
+  
+  try {
+    const today = DateTime.now().toFormat("yyyy-MM-dd");
+
+    const result = await db
+      .select({
+        totalDuration: sqlExpr<number>`COALESCE(SUM(${practiceSessions.duration}), 0)`,
+      })
+      .from(practiceSessions)
+      .where(and(eq(practiceSessions.userId, userId), eq(practiceSessions.date, today)));
+
+    const totalDuration = Number(result[0]?.totalDuration) || 0;
+    return c.json({ totalDuration });
+  } catch (error) {
+    console.error("[API] Error getting daily stats:", error);
+    return c.json({ error: "Failed to get daily stats" }, 500);
+  }
+});
+
+// GET /api/sessions/practice/stats/weekly/discord/:discordId
+app.get("/stats/weekly/discord/:discordId", async (c) => {
   const discordId = c.req.param("discordId");
   
   try {
@@ -170,8 +212,8 @@ app.get("/stats/weekly/:discordId", async (c) => {
   }
 });
 
-// GET /api/practice-sessions/stats/monthly/:discordId
-app.get("/stats/monthly/:discordId", async (c) => {
+// GET /api/sessions/practice/stats/monthly/discord/:discordId
+app.get("/stats/monthly/discord/:discordId", async (c) => {
   const discordId = c.req.param("discordId");
   
   try {
@@ -217,7 +259,7 @@ app.get("/stats/monthly/:discordId", async (c) => {
   }
 });
 
-// GET /api/practice-sessions/leaderboard
+// GET /api/sessions/practice/leaderboard
 app.get("/leaderboard", async (c) => {
   try {
     const results = await db
@@ -247,7 +289,7 @@ app.get("/leaderboard", async (c) => {
   }
 });
 
-// GET /api/practice-sessions/total-hours
+// GET /api/sessions/practice/total-hours
 app.get("/total-hours", async (c) => {
   try {
     const result = await db

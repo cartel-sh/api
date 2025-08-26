@@ -3,10 +3,10 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { config } from "dotenv";
 
-import vanishingChannels from "./routes/vanishing-channels";
-import practiceSessions from "./routes/practice-sessions";
-import channelSettings from "./routes/channel-settings";
-import applications from "./routes/applications";
+import vanish from "./routes/discord/vanish";
+import channels from "./routes/discord/channels";
+import practice from "./routes/sessions/practice";
+import applications from "./routes/users/applications";
 import users from "./routes/users";
 import adminKeys from "./routes/admin/keys";
 import { apiKeyAuth } from "./middleware/auth";
@@ -23,10 +23,10 @@ app.use("*", logger());
 app.use("/api/*", apiKeyAuth);
 
 // Routes
-app.route("/api/vanishing-channels", vanishingChannels);
-app.route("/api/practice-sessions", practiceSessions);
-app.route("/api/channel-settings", channelSettings);
-app.route("/api/applications", applications);
+app.route("/api/discord/vanish", vanish);
+app.route("/api/discord/channels", channels);
+app.route("/api/sessions/practice", practice);
+app.route("/api/users/applications", applications);
 app.route("/api/users", users);
 
 // Admin routes (requires admin scope)
@@ -40,10 +40,10 @@ app.get("/", (c) => c.json({
   name: "@cartel-sh/db API",
   version: "1.0.0",
   endpoints: [
-    "/api/vanishing-channels",
-    "/api/practice-sessions",
-    "/api/channel-settings",
-    "/api/applications",
+    "/api/discord/vanish",
+    "/api/discord/channels",
+    "/api/sessions/practice",
+    "/api/users/applications",
     "/api/users"
   ]
 }));
@@ -62,8 +62,6 @@ const port = Number(process.env.PORT || Bun.env?.PORT) || 3003;
 
 console.log(`Starting server on port ${port}...`);
 console.log(`Server is running on http://localhost:${port}`);
-// console.log(`API documentation: http://localhost:${port}/`);
-// console.log(`Health check: http://localhost:${port}/health`);
 
 export default {
   port,
