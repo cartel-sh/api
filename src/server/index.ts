@@ -8,6 +8,8 @@ import practiceSessions from "./routes/practice-sessions";
 import channelSettings from "./routes/channel-settings";
 import applications from "./routes/applications";
 import users from "./routes/users";
+import adminKeys from "./routes/admin/keys";
+import { apiKeyAuth } from "./middleware/auth";
 
 config();
 
@@ -17,26 +19,8 @@ const app = new Hono();
 app.use("*", cors());
 app.use("*", logger());
 
-// API key authentication middleware (required)
-app.use("/api/*", async (c, next) => {
-  const apiKey = c.req.header("X-API-Key");
-  const expectedKey = process.env.API_KEY || Bun.env?.API_KEY;
-  
-  if (!expectedKey) {
-    console.error("WARNING: API_KEY not set in environment variables. API is unprotected!");
-    return c.json({ error: "Server configuration error: API_KEY not set" }, 500);
-  }
-  
-  if (!apiKey) {
-    return c.json({ error: "Missing API key. Please provide X-API-Key header" }, 401);
-  }
-  
-  if (apiKey !== expectedKey) {
-    return c.json({ error: "Invalid API key" }, 401);
-  }
-  
-  await next();
-});
+// Use new database-based API key authentication middleware
+app.use("/api/*", apiKeyAuth);
 
 // Routes
 app.route("/api/vanishing-channels", vanishingChannels);
@@ -44,6 +28,9 @@ app.route("/api/practice-sessions", practiceSessions);
 app.route("/api/channel-settings", channelSettings);
 app.route("/api/applications", applications);
 app.route("/api/users", users);
+
+// Admin routes (requires admin scope)
+app.route("/api/admin/keys", adminKeys);
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));

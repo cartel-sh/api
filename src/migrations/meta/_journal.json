@@ -15,6 +15,13 @@
       "when": 1754754416603,
       "tag": "0001_lame_doctor_octopus",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1756193947654,
+      "tag": "0002_organic_emma_frost",
+      "breakpoints": true
     }
   ]
 }

@@ -24,6 +24,7 @@ export const users = pgTable("users", {
 export const usersRelations = relations(users, ({ many }) => ({
   identities: many(userIdentities),
   practiceSessions: many(practiceSessions),
+  apiKeys: many(apiKeys),
 }));
 
 export const userIdentities = pgTable(
@@ -209,3 +210,46 @@ export interface ApplicationVote
   extends InferSelectModel<typeof applicationVotes> {}
 export interface NewApplicationVote
   extends InferInsertModel<typeof applicationVotes> {}
+
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    keyPrefix: text("key_prefix").notNull().unique(), // First 8 chars for identification
+    keyHash: text("key_hash").notNull().unique(), // SHA-256 hash of full key
+    description: text("description"),
+    scopes: text("scopes").array().default(sql`ARRAY['read', 'write']::text[]`),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    isActive: boolean("is_active").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => {
+    return {
+      userIdIdx: index("api_keys_user_id_idx").on(table.userId),
+      keyPrefixIdx: index("api_keys_prefix_idx")
+        .on(table.keyPrefix)
+        .where(sql`${table.isActive} = true`),
+      expiresAtIdx: index("api_keys_expires_idx")
+        .on(table.expiresAt)
+        .where(sql`${table.isActive} = true`),
+    };
+  },
+);
+
+export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
+  user: one(users, {
+    fields: [apiKeys.userId],
+    references: [users.id],
+  }),
+}));
+
+export interface ApiKey extends InferSelectModel<typeof apiKeys> {
+  scopes: string[];
+}
+export interface NewApiKey extends InferInsertModel<typeof apiKeys> {}
