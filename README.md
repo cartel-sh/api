@@ -1,6 +1,6 @@
 # @cartel-sh/db
 
-Shared database package with REST API for Cartel - a Discord bot ecosystem with PostgreSQL backend.
+Shared database package with REST API for Cartel.
 
 ## Features
 
