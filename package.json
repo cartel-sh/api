@@ -1,6 +1,6 @@
 {
   "name": "@cartel-sh/api",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Shared database package with REST API for Cartel",
   "main": "./dist/client/index.js",
   "module": "./dist/client/index.mjs",
