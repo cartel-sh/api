@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { serve } from "@hono/node-server";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { config } from "dotenv";
@@ -64,20 +63,15 @@ app.onError((err, c) => {
   return c.json({ error: "Internal server error" }, 500);
 });
 
-export default app;
+// For Bun runtime
+const port = Number(process.env.PORT || Bun.env?.PORT) || 3003;
 
-// Start server if this file is run directly
-if (require.main === module) {
-  const port = Number(process.env.PORT) || 3003;
-  
-  console.log(`Starting server on port ${port}...`);
-  
-  serve({
-    fetch: app.fetch,
-    port,
-  });
-  
-  console.log(`🚀 Server is running on http://localhost:${port}`);
-  console.log(`📚 API documentation: http://localhost:${port}/`);
-  console.log(`🏥 Health check: http://localhost:${port}/health`);
-}
+console.log(`Starting server on port ${port}...`);
+console.log(`🚀 Server is running on http://localhost:${port}`);
+console.log(`📚 API documentation: http://localhost:${port}/`);
+console.log(`🏥 Health check: http://localhost:${port}/health`);
+
+export default {
+  port,
+  fetch: app.fetch,
+};
