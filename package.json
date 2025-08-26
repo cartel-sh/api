@@ -29,15 +29,13 @@
   },
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch",
-    "start": "node dist/server/index.js",
     "server": "bun run src/server/index.ts",
-    "server:dev": "bun --watch src/server/index.ts",
+    "dev": "bun --watch src/server/index.ts",
     "typecheck": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "bun run src/migrate.ts",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio",
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit migrate",
+    "push": "drizzle-kit push",
+    "studio": "drizzle-kit studio",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

@@ -2,14 +2,15 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { config } from "dotenv";
+import { apiKeyAuth } from "./middleware/auth";
 
+import packageJson from "../../package.json" with { type: "json" };
 import vanish from "./routes/discord/vanish";
 import channels from "./routes/discord/channels";
 import practice from "./routes/sessions/practice";
 import applications from "./routes/users/applications";
 import users from "./routes/users";
 import adminKeys from "./routes/admin/keys";
-import { apiKeyAuth } from "./middleware/auth";
 
 config();
 
@@ -36,9 +37,9 @@ app.route("/api/admin/keys", adminKeys);
 app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
 
 // Root route
-app.get("/", (c) => c.json({ 
+app.get("/", (c) => c.json({
   name: "@cartel-sh/db API",
-  version: "1.0.0",
+  version: packageJson.version,
   endpoints: [
     "/api/discord/vanish",
     "/api/discord/channels",
