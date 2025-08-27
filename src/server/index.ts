@@ -13,6 +13,7 @@ import id from "./routes/users/id";
 import identities from "./routes/users/identities";
 import adminKeys from "./routes/admin/keys";
 import adminIdentities from "./routes/admin/identities";
+import projects from "./routes/projects";
 
 config();
 
@@ -37,6 +38,9 @@ app.route("/api/users/identities", identities);
 app.route("/api/admin/keys", adminKeys);
 app.route("/api/admin/identities", adminIdentities);
 
+// Project routes
+app.route("/api/projects", projects);
+
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
 
@@ -52,7 +56,8 @@ app.get("/", (c) => c.json({
     "/api/users/id",
     "/api/users/identities",
     "/api/admin/keys",
-    "/api/admin/identities"
+    "/api/admin/identities",
+    "/api/projects"
   ]
 }));
 

@@ -25,6 +25,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   identities: many(userIdentities),
   practiceSessions: many(practiceSessions),
   apiKeys: many(apiKeys),
+  projects: many(projects),
 }));
 
 export const userIdentities = pgTable(
@@ -256,3 +257,40 @@ export interface ApiKey extends InferSelectModel<typeof apiKeys> {
   scopes: string[];
 }
 export interface NewApiKey extends InferInsertModel<typeof apiKeys> {}
+
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    githubUrl: text("github_url"),
+    deploymentUrl: text("deployment_url"),
+    tags: text("tags").array().default(sql`ARRAY[]::text[]`),
+    isPublic: boolean("is_public").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("projects_user_id_idx").on(table.userId),
+    index("projects_public_idx")
+      .on(table.isPublic)
+      .where(sql`${table.isPublic} = true`),
+    index("projects_tags_idx").using("gin", table.tags),
+  ],
+);
+
+export const projectsRelations = relations(projects, ({ one }) => ({
+  user: one(users, {
+    fields: [projects.userId],
+    references: [users.id],
+  }),
+}));
+
+export interface Project extends InferSelectModel<typeof projects> {
+  tags: string[];
+}
+export interface NewProject extends InferInsertModel<typeof projects> {}

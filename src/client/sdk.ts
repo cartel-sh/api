@@ -330,4 +330,66 @@ export class CartelDBClient {
       body: JSON.stringify({ sourceUserId, targetUserId }),
     });
   }
+
+  // Projects
+  async getProjects(params?: {
+    search?: string;
+    tags?: string;
+    userId?: string;
+    public?: "true" | "false" | "all";
+    limit?: number;
+    offset?: number;
+  }) {
+    const query = params ? `?${new URLSearchParams(params as any).toString()}` : "";
+    return this.request(`/api/projects${query}`);
+  }
+
+  async getProject(projectId: string) {
+    return this.request(`/api/projects/${projectId}`);
+  }
+
+  async getUserProjects(userId: string) {
+    return this.request(`/api/projects/user/${userId}`);
+  }
+
+  async createProject(data: {
+    title: string;
+    description: string;
+    githubUrl?: string | null;
+    deploymentUrl?: string | null;
+    tags?: string[];
+    isPublic?: boolean;
+  }) {
+    return this.request("/api/projects", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateProject(
+    projectId: string,
+    data: {
+      title?: string;
+      description?: string;
+      githubUrl?: string | null;
+      deploymentUrl?: string | null;
+      tags?: string[];
+      isPublic?: boolean;
+    }
+  ) {
+    return this.request(`/api/projects/${projectId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteProject(projectId: string) {
+    return this.request(`/api/projects/${projectId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async getPopularProjectTags() {
+    return this.request("/api/projects/tags/popular");
+  }
 }
