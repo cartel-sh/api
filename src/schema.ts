@@ -37,12 +37,10 @@ export const userIdentities = pgTable(
     identity: text("identity").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => {
-    return {
-      pk: primaryKey({ columns: [table.platform, table.identity] }),
-      userIdIdx: index("user_identities_user_id_idx").on(table.userId),
-    };
-  },
+  (table) => [
+    primaryKey({ columns: [table.platform, table.identity] }),
+    index("user_identities_user_id_idx").on(table.userId),
+  ],
 );
 
 export const userIdentitiesRelations = relations(userIdentities, ({ one }) => ({
@@ -63,11 +61,9 @@ export const vanishingChannels = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => {
-    return {
-      guildIdx: index("vanishing_channels_guild_idx").on(table.guildId),
-    };
-  },
+  (table) => [
+    index("vanishing_channels_guild_idx").on(table.guildId),
+  ],
 );
 
 export const practiceSessions = pgTable(
@@ -83,17 +79,15 @@ export const practiceSessions = pgTable(
     date: text("date").notNull(), // Using text to store YYYY-MM-DD format
     notes: text("notes"),
   },
-  (table) => {
-    return {
-      userDateIdx: index("practice_sessions_user_date_idx").on(
-        table.userId,
-        table.date,
-      ),
-      activeIdx: index("practice_sessions_active_idx")
-        .on(table.userId)
-        .where(sql`${table.endTime} IS NULL`),
-    };
-  },
+  (table) => [
+    index("practice_sessions_user_date_idx").on(
+      table.userId,
+      table.date,
+    ),
+    index("practice_sessions_active_idx")
+      .on(table.userId)
+      .where(sql`${table.endTime} IS NULL`),
+  ],
 );
 
 export const practiceSessionsRelations = relations(
@@ -116,14 +110,12 @@ export const channelSettings = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => {
-    return {
-      guildKeyIdx: index("channel_settings_guild_key_idx").on(
-        table.guildId,
-        table.key,
-      ),
-    };
-  },
+  (table) => [
+    index("channel_settings_guild_key_idx").on(
+      table.guildId,
+      table.key,
+    ),
+  ],
 );
 
 export interface User extends InferSelectModel<typeof users> {}
@@ -174,12 +166,10 @@ export const applications = pgTable(
     submittedAt: timestamp("submitted_at", { withTimezone: true }).defaultNow(),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
   },
-  (table) => {
-    return {
-      statusIdx: index("applications_status_idx").on(table.status),
-      walletIdx: index("applications_wallet_idx").on(table.walletAddress),
-    };
-  },
+  (table) => [
+    index("applications_status_idx").on(table.status),
+    index("applications_wallet_idx").on(table.walletAddress),
+  ],
 );
 
 export const applicationVotes = pgTable(
@@ -194,12 +184,10 @@ export const applicationVotes = pgTable(
     voteType: text("vote_type").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => {
-    return {
-      pk: primaryKey({ columns: [table.applicationId, table.userId] }),
-      applicationIdx: index("votes_application_idx").on(table.applicationId),
-    };
-  },
+  (table) => [
+    primaryKey({ columns: [table.applicationId, table.userId] }),
+    index("votes_application_idx").on(table.applicationId),
+  ],
 );
 
 export const applicationsRelations = relations(applications, ({ many }) => ({
@@ -241,17 +229,15 @@ export const apiKeys = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
-  (table) => {
-    return {
-      userIdIdx: index("api_keys_user_id_idx").on(table.userId),
-      keyPrefixIdx: index("api_keys_prefix_idx")
-        .on(table.keyPrefix)
-        .where(sql`${table.isActive} = true`),
-      expiresAtIdx: index("api_keys_expires_idx")
-        .on(table.expiresAt)
-        .where(sql`${table.isActive} = true`),
-    };
-  },
+  (table) => [
+    index("api_keys_user_id_idx").on(table.userId),
+    index("api_keys_prefix_idx")
+      .on(table.keyPrefix)
+      .where(sql`${table.isActive} = true`),
+    index("api_keys_expires_idx")
+      .on(table.expiresAt)
+      .where(sql`${table.isActive} = true`),
+  ],
 );
 
 export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
