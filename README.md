@@ -1,6 +1,4 @@
-# @cartel-sh/db
-
-Shared database package with REST API for Cartel.
+Shared database package with REST API and SDK for Cartel.
 
 ## Features
 
@@ -8,6 +6,8 @@ Shared database package with REST API for Cartel.
 - **TypeScript SDK** - Type-safe client for interacting with the API
 - **Database Schema** - Drizzle ORM schema definitions
 - **API Authentication** - Secure API key-based authentication
+- **Multi-Identity Support** - Users can have multiple identities (EVM, Lens, Farcaster, Discord, Telegram)
+- **Identity Management** - Admin routes for connecting, disconnecting, and merging user identities
 
 ## Installation
 
@@ -143,12 +143,20 @@ All API endpoints require the `X-API-Key` header with a valid API key.
 - `POST /api/users/applications/{applicationId}/votes` - Add vote to application
 - `GET /api/users/applications/{applicationId}/votes` - Get application votes
 
-### Users
-- `GET /api/users` - List all users
-- `GET /api/users/{userId}` - Get specific user
-- `GET /api/users/by-discord/{discordId}` - Get user by Discord ID
-- `POST /api/users` - Create/update user
-- `DELETE /api/users/{userId}` - Delete user
+### User Identities
+- `GET /api/users/id/by-evm/{address}` - Get user by Ethereum address
+- `GET /api/users/id/by-lens/{address}` - Get user by Lens handle/address
+- `GET /api/users/id/by-farcaster/{fid}` - Get user by Farcaster FID
+- `GET /api/users/id/by-discord/{discordId}` - Get user by Discord ID
+- `GET /api/users/id/by-telegram/{telegramId}` - Get user by Telegram ID
+- `GET /api/users/identities/{userId}` - Get all identities for a user
+- `POST /api/users/id` - Create user with identity (auto-creates user if needed)
+
+### Admin - Identity Management (Admin Only)
+- `POST /api/admin/identities/connect` - Connect identity to existing user
+- `DELETE /api/admin/identities/disconnect` - Disconnect identity from user
+- `PUT /api/admin/identities/set-primary` - Set identity as primary for user
+- `POST /api/admin/identities/merge-users` - Merge two users by moving identities
 
 ## Using the SDK
 
@@ -183,6 +191,45 @@ await client.startSession({ userId: 'user-uuid-here' });
 // Example: Get practice stats
 const dailyStats = await client.getDailyStats('discord-id');
 const weeklyStats = await client.getWeeklyStatsByUserId('user-uuid');
+
+// Example: Get user by different identity types
+// Using the unified getUser function
+const userByEvm = await client.getUser({ evm: '0x1234...' });
+const userByDiscord = await client.getUser({ discord: '123456789' });
+const userByFarcaster = await client.getUser({ farcaster: '1234' });
+const userByLens = await client.getUser({ lens: '0xabcd...' });
+const userByTelegram = await client.getUser({ telegram: '987654321' });
+
+// Or using individual methods
+const user = await client.getUserByEvm('0x1234...');
+const user2 = await client.getUserByDiscord('123456789');
+
+// Get all identities for a user
+const identities = await client.getUserIdentities('user-uuid');
+
+// Create user with identity (auto-creates if needed)
+const newUser = await client.createUserIdentity({
+  platform: 'evm',
+  identity: '0x5678...',
+  isPrimary: true
+});
+
+// Admin: Connect additional identity to existing user
+const connected = await client.connectIdentity({
+  userId: 'user-uuid',
+  platform: 'discord',
+  identity: '123456789',
+  isPrimary: false
+});
+
+// Admin: Set primary identity
+await client.setPrimaryIdentity({
+  platform: 'evm',
+  identity: '0x1234...'
+});
+
+// Admin: Merge users
+await client.mergeUsers('source-user-uuid', 'target-user-uuid');
 ```
 
 ### cURL Examples
@@ -239,6 +286,78 @@ curl -X POST http://localhost:3003/api/sessions/practice/start \
   -H "X-API-Key: cartel_your-api-key-here" \
   -H "Content-Type: application/json" \
   -d '{"discordId": "discord-id-here", "notes": "Practice notes"}'
+```
+
+#### User Identity Examples
+
+```bash
+# Get user by EVM address
+curl -X GET http://localhost:3003/api/users/id/by-evm/0x1234567890abcdef \
+  -H "X-API-Key: cartel_your-api-key-here"
+
+# Get user by Discord ID
+curl -X GET http://localhost:3003/api/users/id/by-discord/123456789 \
+  -H "X-API-Key: cartel_your-api-key-here"
+
+# Get user by Farcaster FID
+curl -X GET http://localhost:3003/api/users/id/by-farcaster/1234 \
+  -H "X-API-Key: cartel_your-api-key-here"
+
+# Get all identities for a user
+curl -X GET http://localhost:3003/api/users/identities/user-uuid-here \
+  -H "X-API-Key: cartel_your-api-key-here"
+
+# Create user with identity (auto-creates user if needed)
+curl -X POST http://localhost:3003/api/users/id \
+  -H "X-API-Key: cartel_your-api-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "platform": "evm",
+    "identity": "0x1234567890abcdef",
+    "isPrimary": true
+  }'
+```
+
+#### Admin Identity Management (requires admin scope)
+
+```bash
+# Connect identity to existing user
+curl -X POST http://localhost:3003/api/admin/identities/connect \
+  -H "X-API-Key: cartel_your-admin-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "user-uuid-here",
+    "platform": "discord",
+    "identity": "123456789",
+    "isPrimary": false
+  }'
+
+# Disconnect identity from user
+curl -X DELETE http://localhost:3003/api/admin/identities/disconnect \
+  -H "X-API-Key: cartel_your-admin-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "platform": "evm",
+    "identity": "0x1234567890abcdef"
+  }'
+
+# Set primary identity
+curl -X PUT http://localhost:3003/api/admin/identities/set-primary \
+  -H "X-API-Key: cartel_your-admin-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "platform": "evm",
+    "identity": "0x1234567890abcdef"
+  }'
+
+# Merge users (moves all identities from source to target)
+curl -X POST http://localhost:3003/api/admin/identities/merge-users \
+  -H "X-API-Key: cartel_your-admin-key-here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sourceUserId": "source-user-uuid",
+    "targetUserId": "target-user-uuid"
+  }'
 ```
 
 ## Building for Production
