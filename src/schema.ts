@@ -33,13 +33,18 @@ export const userIdentities = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    platform: text("platform").notNull(), // 'discord', 'evm', 'lens'
+    platform: text("platform").notNull(), // 'discord', 'evm', 'lens', 'farcaster', 'telegram'
     identity: text("identity").notNull(),
+    isPrimary: boolean("is_primary").default(false).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
     primaryKey({ columns: [table.platform, table.identity] }),
     index("user_identities_user_id_idx").on(table.userId),
+    index("user_identities_primary_idx")
+      .on(table.userId, table.isPrimary)
+      .where(sql`${table.isPrimary} = true`),
   ],
 );
 

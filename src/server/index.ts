@@ -9,8 +9,10 @@ import vanish from "./routes/discord/vanish";
 import channels from "./routes/discord/channels";
 import practice from "./routes/sessions/practice";
 import applications from "./routes/users/applications";
-import users from "./routes/users";
+import id from "./routes/users/id";
+import identities from "./routes/users/identities";
 import adminKeys from "./routes/admin/keys";
+import adminIdentities from "./routes/admin/identities";
 
 config();
 
@@ -28,10 +30,12 @@ app.route("/api/discord/vanish", vanish);
 app.route("/api/discord/channels", channels);
 app.route("/api/sessions/practice", practice);
 app.route("/api/users/applications", applications);
-app.route("/api/users", users);
+app.route("/api/users/id", id);
+app.route("/api/users/identities", identities);
 
 // Admin routes (requires admin scope)
 app.route("/api/admin/keys", adminKeys);
+app.route("/api/admin/identities", adminIdentities);
 
 // Health check
 app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
@@ -45,7 +49,10 @@ app.get("/", (c) => c.json({
     "/api/discord/channels",
     "/api/sessions/practice",
     "/api/users/applications",
-    "/api/users"
+    "/api/users/id",
+    "/api/users/identities",
+    "/api/admin/keys",
+    "/api/admin/identities"
   ]
 }));
 

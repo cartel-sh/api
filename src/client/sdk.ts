@@ -1,3 +1,11 @@
+type UserIdentityLookup = {
+  evm?: string;
+  lens?: string;
+  farcaster?: string;
+  telegram?: string;
+  discord?: string;
+};
+
 export class CartelDBClient {
   constructor(
     private baseUrl: string,
@@ -229,11 +237,97 @@ export class CartelDBClient {
     return this.request(`/api/users/applications/${applicationId}/votes`);
   }
 
-  // Users
-  async getUserByDiscordId(discordId: string) {
-    const response = await this.request<{ userId: string }>(
-      `/api/users/by-discord/${discordId}`,
-    );
-    return response.userId;
+  // User Identities
+  
+  async getUser(identity: UserIdentityLookup) {
+    if (identity.evm) {
+      return this.getUserByEvm(identity.evm);
+    } else if (identity.lens) {
+      return this.getUserByLens(identity.lens);
+    } else if (identity.farcaster) {
+      return this.getUserByFarcaster(identity.farcaster);
+    } else if (identity.telegram) {
+      return this.getUserByTelegram(identity.telegram);
+    } else if (identity.discord) {
+      return this.getUserByDiscord(identity.discord);
+    } else {
+      throw new Error("At least one identity type must be provided");
+    }
+  }
+
+  // Individual methods for backward compatibility and direct access
+  async getUserByEvm(address: string) {
+    return this.request(`/api/users/id/by-evm/${address}`);
+  }
+
+  async getUserByLens(address: string) {
+    return this.request(`/api/users/id/by-lens/${address}`);
+  }
+
+  async getUserByFarcaster(fid: string) {
+    return this.request(`/api/users/id/by-farcaster/${fid}`);
+  }
+
+  async getUserByTelegram(telegramId: string) {
+    return this.request(`/api/users/id/by-telegram/${telegramId}`);
+  }
+
+  async getUserByDiscord(discordId: string) {
+    return this.request(`/api/users/id/by-discord/${discordId}`);
+  }
+
+  async getUserIdentities(userId: string) {
+    return this.request(`/api/users/identities/${userId}`);
+  }
+
+  async createUserIdentity(data: {
+    platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
+    identity: string;
+    isPrimary?: boolean;
+  }) {
+    return this.request("/api/users/id", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  // Admin: Identity Management
+  async connectIdentity(data: {
+    userId: string;
+    platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
+    identity: string;
+    isPrimary?: boolean;
+  }) {
+    return this.request("/api/admin/identities/connect", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async disconnectIdentity(data: {
+    platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
+    identity: string;
+  }) {
+    return this.request("/api/admin/identities/disconnect", {
+      method: "DELETE",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async setPrimaryIdentity(data: {
+    platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
+    identity: string;
+  }) {
+    return this.request("/api/admin/identities/set-primary", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async mergeUsers(sourceUserId: string, targetUserId: string) {
+    return this.request("/api/admin/identities/merge-users", {
+      method: "POST",
+      body: JSON.stringify({ sourceUserId, targetUserId }),
+    });
   }
 }
