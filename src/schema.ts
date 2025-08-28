@@ -9,6 +9,7 @@ import {
   index,
   integer,
   pgTable,
+  pgPolicy,
   primaryKey,
   text,
   timestamp,
@@ -280,8 +281,29 @@ export const projects = pgTable(
       .on(table.isPublic)
       .where(sql`${table.isPublic} = true`),
     index("projects_tags_idx").using("gin", table.tags),
+    pgPolicy("projects_select_own_or_public", {
+      as: "permissive",
+      for: "select",
+      using: sql`(user_id = current_setting('app.current_user_id', true)::uuid OR is_public = true)`,
+    }),
+    pgPolicy("projects_insert_own", {
+      as: "permissive",
+      for: "insert",
+      withCheck: sql`(user_id = current_setting('app.current_user_id', true)::uuid)`,
+    }),
+    pgPolicy("projects_update_own", {
+      as: "permissive",
+      for: "update",
+      using: sql`(user_id = current_setting('app.current_user_id', true)::uuid)`,
+      withCheck: sql`(user_id = current_setting('app.current_user_id', true)::uuid)`,
+    }),
+    pgPolicy("projects_delete_own", {
+      as: "permissive",
+      for: "delete",
+      using: sql`(user_id = current_setting('app.current_user_id', true)::uuid)`,
+    }),
   ],
-);
+).enableRLS();
 
 export const projectsRelations = relations(projects, ({ one }) => ({
   user: one(users, {

@@ -4,12 +4,13 @@ import { z } from "zod";
 import { eq, desc } from "drizzle-orm";
 import { db, apiKeys, users } from "../../../client";
 import { generateApiKey, hashApiKey, getApiKeyPrefix } from "../../utils/crypto";
-import { requireScopes } from "../../middleware/auth";
+import { requireJwtAuth } from "../../middleware/auth";
 
 const app = new Hono();
 
-// All admin routes require admin scope
-app.use("*", requireScopes("admin"));
+// All admin routes require JWT authentication
+// TODO: Add admin role check once roles are implemented
+app.use("*", requireJwtAuth);
 
 // POST /api/admin/keys - Generate new API key
 app.post(

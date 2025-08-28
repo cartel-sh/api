@@ -43,6 +43,13 @@
       "when": 1756276640790,
       "tag": "0005_deep_old_lace",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1756367560838,
+      "tag": "0006_clean_freak",
+      "breakpoints": true
     }
   ]
 }

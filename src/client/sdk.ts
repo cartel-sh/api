@@ -7,19 +7,46 @@ type UserIdentityLookup = {
 };
 
 export class CartelDBClient {
+  private token?: string;
+  
   constructor(
     private baseUrl: string,
     private apiKey?: string,
   ) {}
 
+  /**
+   * Set JWT token for authenticated requests
+   */
+  setAuthToken(token: string) {
+    this.token = token;
+  }
+
+  /**
+   * Clear JWT token
+   */
+  clearAuthToken() {
+    this.token = undefined;
+  }
+
   private async request<T = any>(path: string, options: RequestInit = {}): Promise<T> {
+    const headers: any = {
+      "Content-Type": "application/json",
+      ...options.headers,
+    };
+
+    // Include API key if provided
+    if (this.apiKey) {
+      headers["X-API-Key"] = this.apiKey;
+    }
+
+    // Include JWT token if available
+    if (this.token) {
+      headers["Authorization"] = `Bearer ${this.token}`;
+    }
+
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(this.apiKey && { "X-API-Key": this.apiKey }),
-        ...options.headers,
-      },
+      headers,
     });
 
     if (!response.ok) {
@@ -391,5 +418,49 @@ export class CartelDBClient {
 
   async getPopularProjectTags() {
     return this.request("/api/projects/tags/popular");
+  }
+
+  // Authentication (SIWE)
+  async requestNonce(address: string) {
+    return this.request("/api/auth/nonce", {
+      method: "POST",
+      body: JSON.stringify({ address }),
+    });
+  }
+
+  /**
+   * Verify SIWE signature and get JWT token
+   * Automatically sets the token for future requests
+   */
+  async login(message: string, signature: string): Promise<{
+    token: string;
+    userId: string;
+    address: string;
+    message: string;
+  }> {
+    const result = await this.request("/api/auth/verify", {
+      method: "POST",
+      body: JSON.stringify({ message, signature }),
+    });
+    
+    // Automatically set the token for future requests
+    if (result.token) {
+      this.setAuthToken(result.token);
+    }
+    
+    return result;
+  }
+
+  async getCurrentUser() {
+    if (!this.token) {
+      throw new Error("Not authenticated. Please login first.");
+    }
+    return this.request("/api/auth/me");
+  }
+
+  logout() {
+    // Clear the JWT token
+    this.clearAuthToken();
+    return Promise.resolve({ message: "Logged out successfully" });
   }
 }

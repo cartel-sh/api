@@ -1,7 +1,7 @@
 {
   "name": "@cartel-sh/api",
-  "version": "2.3.0",
-  "description": "Shared database package with REST API for Cartel",
+  "version": "3.0.0",
+  "description": "Shared REST API and SDK for Cartel",
   "main": "./dist/client/index.js",
   "module": "./dist/client/index.mjs",
   "types": "./dist/client/index.d.ts",
@@ -45,13 +45,17 @@
     "@types/luxon": "^3.7.1",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.40.0",
+    "ethers": "^6.15.0",
     "hono": "^4.9.4",
+    "jsonwebtoken": "^9.0.2",
     "luxon": "^3.7.1",
     "postgres": "^3.4.5",
+    "siwe": "^3.0.0",
     "zod": "^4.1.1"
   },
   "devDependencies": {
     "@types/bun": "^1.1.14",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.10.2",
     "drizzle-kit": "^0.28.1",
     "tsup": "^8.3.5",

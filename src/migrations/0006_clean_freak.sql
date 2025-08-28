@@ -1,0 +1,5 @@
+ALTER TABLE "projects" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+CREATE POLICY "projects_select_own_or_public" ON "projects" AS PERMISSIVE FOR SELECT TO public USING ((user_id = current_setting('app.current_user_id', true)::uuid OR is_public = true));--> statement-breakpoint
+CREATE POLICY "projects_insert_own" ON "projects" AS PERMISSIVE FOR INSERT TO public WITH CHECK ((user_id = current_setting('app.current_user_id', true)::uuid));--> statement-breakpoint
+CREATE POLICY "projects_update_own" ON "projects" AS PERMISSIVE FOR UPDATE TO public USING ((user_id = current_setting('app.current_user_id', true)::uuid)) WITH CHECK ((user_id = current_setting('app.current_user_id', true)::uuid));--> statement-breakpoint
+CREATE POLICY "projects_delete_own" ON "projects" AS PERMISSIVE FOR DELETE TO public USING ((user_id = current_setting('app.current_user_id', true)::uuid));

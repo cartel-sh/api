@@ -3,6 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { desc, eq, sql } from "drizzle-orm";
 import { db, applications, applicationVotes } from "../../../client";
+import { requireJwtAuth } from "../../middleware/auth";
 
 const app = new Hono();
 
@@ -122,6 +123,7 @@ app.get("/by-number/:number", async (c) => {
 // PATCH /api/applications/:id/status
 app.patch(
   "/:id/status",
+  requireJwtAuth, // Require authentication to change status
   zValidator(
     "json",
     z.object({
@@ -150,7 +152,7 @@ app.patch(
 );
 
 // DELETE /api/applications/:id
-app.delete("/:id", async (c) => {
+app.delete("/:id", requireJwtAuth, async (c) => {
   const id = c.req.param("id");
   
   try {

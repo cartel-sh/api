@@ -3,15 +3,20 @@ import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
 import { and, eq, sql } from "drizzle-orm";
 import { db, userIdentities, users } from "../../../client";
+import { requireJwtAuth } from "../../middleware/auth";
 
 const app = new Hono();
+
+// All admin routes require JWT authentication
+// TODO: Add admin role check once roles are implemented
+app.use("*", requireJwtAuth);
 
 // Platform enum for validation
 const PlatformEnum = z.enum(["discord", "evm", "lens", "farcaster", "telegram"]);
 
 // POST /api/admin/identities/connect - Connect a new identity to an existing user
 const connectIdentitySchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.uuid(),
   platform: PlatformEnum,
   identity: z.string().min(1),
   isPrimary: z.boolean().optional().default(false)

@@ -3,6 +3,7 @@ import { eq, and, or, isNull, gte } from "drizzle-orm";
 import { db, apiKeys } from "../../client";
 import { hashApiKey, getApiKeyPrefix, isValidApiKeyFormat } from "../utils/crypto";
 import type { ApiKey } from "../../schema";
+import jwt from "jsonwebtoken";
 
 // Simple in-memory cache for API keys
 interface CachedKey {
@@ -89,7 +90,7 @@ async function getApiKey(rawKey: string): Promise<ApiKey | null> {
 }
 
 /**
- * API key authentication middleware
+ * API key authentication middleware (requires API key)
  */
 export async function apiKeyAuth(c: Context, next: Next) {
   const apiKey = c.req.header("X-API-Key");
@@ -133,6 +134,58 @@ export async function apiKeyAuth(c: Context, next: Next) {
 }
 
 /**
+ * Optional API key middleware (extracts API key if present, doesn't require it)
+ * Use this for routes where API key is optional but needed for rate limiting
+ */
+export async function optionalApiKey(c: Context, next: Next) {
+  const apiKey = c.req.header("X-API-Key");
+  
+  if (!apiKey) {
+    // No API key provided, continue without it
+    await next();
+    return;
+  }
+  
+  // Check for root key (environment variable)
+  const rootKey = process.env.API_KEY || Bun.env?.API_KEY;
+  
+  if (rootKey && apiKey === rootKey) {
+    // Root key has all permissions and bypasses database
+    c.set("apiKeyType", "root");
+    c.set("apiKeyScopes", ["read", "write", "admin", "root"]);
+    c.set("apiKeyUserId", "root"); // Use apiKeyUserId to differentiate from JWT userId
+    await next();
+    return;
+  }
+  
+  // For non-root keys, validate format
+  if (!isValidApiKeyFormat(apiKey)) {
+    // Invalid format, but we don't fail - just continue without API key context
+    console.debug("Invalid API key format provided");
+    await next();
+    return;
+  }
+  
+  // Get key from cache or database
+  const keyData = await getApiKey(apiKey);
+  
+  if (!keyData) {
+    // Invalid key, but we don't fail - just continue without API key context
+    console.debug("Invalid API key provided");
+    await next();
+    return;
+  }
+  
+  // Set context variables for use in routes (for rate limiting)
+  c.set("apiKeyId", keyData.id);
+  c.set("apiKeyUserId", keyData.userId); // Use apiKeyUserId to differentiate from JWT userId
+  c.set("apiKeyScopes", keyData.scopes || ["read", "write"]);
+  c.set("apiKeyType", "database");
+  
+  await next();
+}
+
+/**
  * Scope checking middleware
  * Use after apiKeyAuth to check if the key has required scopes
  */
@@ -166,4 +219,73 @@ export function requireScopes(...requiredScopes: string[]) {
  */
 export function clearApiKeyCache() {
   keyCache.clear();
+}
+
+// JWT configuration - reuse from auth routes
+const JWT_SECRET = process.env.JWT_SECRET || Bun.env.JWT_SECRET || "development-secret-key-change-this-in-production-minimum-32-chars";
+
+/**
+ * Middleware to extract JWT token and set user context
+ * Sets sessionUserId and userAddress in context if valid token present
+ * Does not fail if no token - use for optional auth
+ */
+export async function withJwtAuth(c: Context, next: Next) {
+  const authorization = c.req.header("Authorization");
+  
+  if (authorization?.startsWith("Bearer ")) {
+    const token = authorization.slice(7);
+    
+    try {
+      const payload = jwt.verify(token, JWT_SECRET) as any;
+      c.set("sessionUserId", payload.userId);
+      c.set("userAddress", payload.address);
+    } catch (error) {
+      // Invalid token, continue without user auth
+      console.debug("Invalid JWT token:", error);
+    }
+  }
+  
+  await next();
+}
+
+/**
+ * Middleware that requires a valid JWT token
+ * Returns 401 if no valid token present
+ */
+export async function requireJwtAuth(c: Context, next: Next) {
+  const authorization = c.req.header("Authorization");
+  
+  if (!authorization?.startsWith("Bearer ")) {
+    return c.json({ 
+      error: "Authentication required",
+      message: "Please provide a valid Bearer token"
+    }, 401);
+  }
+  
+  const token = authorization.slice(7);
+  
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as any;
+    c.set("sessionUserId", payload.userId);
+    c.set("userAddress", payload.address);
+    await next();
+  } catch (error) {
+    return c.json({ 
+      error: "Invalid or expired token",
+      message: "Please sign in again"
+    }, 401);
+  }
+}
+
+/**
+ * Combined middleware that requires both API key and JWT auth
+ * API key identifies the application, JWT identifies the user
+ */
+export async function requireFullAuth(c: Context, next: Next) {
+  // First check API key
+  const apiKeyResult = await apiKeyAuth(c, async () => {});
+  if (apiKeyResult) return apiKeyResult; // Return error if API key invalid
+  
+  // Then check JWT
+  return requireJwtAuth(c, next);
 }

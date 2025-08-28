@@ -70,33 +70,58 @@ bun run db:studio
 
 ## Authentication
 
-The API uses database-managed API keys for authentication. Each request must include an `X-API-Key` header.
+The API uses JWT tokens for authentication and API keys for future rate limiting.
 
-### Root Key (Optional)
+### JWT Authentication (Required for protected routes)
 
-A root API key can be configured via the `API_KEY` environment variable. This key:
-- Bypasses database authentication entirely
-- Has full access to all endpoints
-- Cannot be revoked via API
-- Should only be used for system administration
+Protected routes require a JWT token in the Authorization header:
+```
+Authorization: Bearer <jwt-token>
+```
 
-### Database API Keys
+JWTs are obtained through SIWE (Sign-In with Ethereum) authentication:
+1. Request a nonce from `/api/auth/nonce`
+2. Sign the message with your wallet
+3. Verify signature at `/api/auth/verify` to receive JWT
 
-API keys are stored in the database with the following features:
+### API Keys (Optional, for rate limiting)
+
+API keys can be included for future rate limiting purposes:
+```
+X-API-Key: <api-key>
+```
+
+API keys are stored in the database with:
 - **Multiple keys** - Each user can have multiple API keys
-- **Scoped access** - Keys can have different permission scopes (read, write, admin)
-- **Key rotation** - Rotate keys with a grace period for seamless transitions
-- **Expiration** - Set optional expiration dates for temporary access
-- **Usage tracking** - Track when keys were last used
+- **Scoped access** - Keys can have different permission scopes (for future use)
+- **Key rotation** - Rotate keys with grace periods
+- **Expiration** - Optional expiration dates
+- **Usage tracking** - Track last usage
+
+**Note:** API keys alone do not grant authentication - use JWT tokens for authenticated requests.
 
 ## API Endpoints
 
-All API endpoints require the `X-API-Key` header with a valid API key.
+Public endpoints are accessible without authentication. Protected endpoints require JWT authentication via `Authorization: Bearer <token>` header.
 
 ### Health Check
-- `GET /health` - Server health status (no auth required)
+- `GET /health` - Server health status (public)
 
-### API Key Management (Admin Only)
+### Authentication
+- `POST /api/auth/nonce` - Get nonce for SIWE (public)
+- `POST /api/auth/verify` - Verify SIWE signature and get JWT (public)
+- `GET /api/auth/me` - Get current user info (requires JWT)
+
+### Projects
+- `GET /api/projects` - List public projects (public) or all user projects (with JWT)
+- `GET /api/projects/{id}` - Get project details (public if project is public)
+- `POST /api/projects` - Create project (requires JWT)
+- `PATCH /api/projects/{id}` - Update project (requires JWT)
+- `DELETE /api/projects/{id}` - Delete project (requires JWT)
+- `GET /api/projects/user/{userId}` - Get user's projects (public projects only without JWT)
+- `GET /api/projects/tags/popular` - Get popular tags (public)
+
+### API Key Management (Requires JWT + Admin role)
 - `POST /api/admin/keys` - Generate a new API key
 - `GET /api/admin/keys` - List all API keys
 - `GET /api/admin/keys/{keyId}` - Get specific key details
@@ -157,6 +182,88 @@ All API endpoints require the `X-API-Key` header with a valid API key.
 - `DELETE /api/admin/identities/disconnect` - Disconnect identity from user
 - `PUT /api/admin/identities/set-primary` - Set identity as primary for user
 - `POST /api/admin/identities/merge-users` - Merge two users by moving identities
+
+## Authentication Tutorial (Next.js)
+
+### Quick Setup
+
+1. **Install dependencies:**
+```bash
+npm install siwe ethers
+```
+
+2. **Create auth hook (`hooks/useAuth.ts`):**
+```typescript
+import { useState } from 'react';
+import { SiweMessage } from 'siwe';
+import { BrowserProvider } from 'ethers';
+
+export function useAuth() {
+  const [token, setToken] = useState<string | null>(null);
+  
+  const signIn = async () => {
+    const provider = new BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    const address = await signer.getAddress();
+    
+    // 1. Get nonce
+    const nonceRes = await fetch('/api/auth/nonce', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address })
+    });
+    const { nonce } = await nonceRes.json();
+    
+    // 2. Create and sign message
+    const message = new SiweMessage({
+      domain: window.location.host,
+      address,
+      statement: 'Sign in to Cartel',
+      uri: window.location.origin,
+      version: '1',
+      chainId: 1,
+      nonce
+    });
+    
+    const signature = await signer.signMessage(message.prepareMessage());
+    
+    // 3. Verify and get JWT
+    const verifyRes = await fetch('/api/auth/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: message.prepareMessage(),
+        signature
+      })
+    });
+    const { token } = await verifyRes.json();
+    
+    setToken(token);
+    localStorage.setItem('jwt', token);
+    return token;
+  };
+  
+  return { token, signIn };
+}
+```
+
+3. **Make authenticated requests:**
+```typescript
+const token = localStorage.getItem('jwt');
+
+// Create a project
+await fetch('/api/projects', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    title: 'My Project',
+    description: 'Description here'
+  })
+});
+```
 
 ## Using the SDK
 
@@ -234,56 +341,63 @@ await client.mergeUsers('source-user-uuid', 'target-user-uuid');
 
 ### cURL Examples
 
-#### API Key Management (requires admin scope)
+#### Authentication Flow
 
 ```bash
-# Generate a new API key
-curl -X POST http://localhost:3003/api/admin/keys \
-  -H "X-API-Key: your-admin-key-here" \
+# 1. Get nonce for SIWE
+curl -X POST http://localhost:3003/api/auth/nonce \
+  -H "Content-Type: application/json" \
+  -d '{"address": "0x1234567890abcdef"}'
+
+# 2. Verify signature and get JWT (after signing with wallet)
+curl -X POST http://localhost:3003/api/auth/verify \
   -H "Content-Type: application/json" \
   -d '{
-    "userId": "user-uuid-here",
-    "name": "My API Key",
-    "description": "Key for my bot",
-    "scopes": ["read", "write"],
-    "expiresIn": 2592000  # Optional: 30 days in seconds
+    "message": "<signed-message>",
+    "signature": "<signature>"
   }'
+# Response: {"token": "<jwt-token>", "userId": "...", "address": "..."}
 
-# List all API keys
-curl -X GET http://localhost:3003/api/admin/keys \
-  -H "X-API-Key: your-admin-key-here"
-
-# Rotate an API key
-curl -X POST http://localhost:3003/api/admin/keys/{keyId}/rotate?gracePeriod=300 \
-  -H "X-API-Key: your-admin-key-here"
-
-# Deactivate an API key
-curl -X DELETE http://localhost:3003/api/admin/keys/{keyId} \
-  -H "X-API-Key: your-admin-key-here"
+# 3. Use JWT for authenticated requests
+curl -X GET http://localhost:3003/api/auth/me \
+  -H "Authorization: Bearer <jwt-token>"
 ```
 
-#### Regular API Usage
+#### Projects API
 
 ```bash
-# Get all vanishing channels
-curl -X GET http://localhost:3003/api/discord/vanish \
-  -H "X-API-Key: cartel_your-api-key-here"
+# List public projects (no auth required)
+curl -X GET http://localhost:3003/api/projects
 
-# Create a vanishing channel
+# Create a project (requires JWT)
+curl -X POST http://localhost:3003/api/projects \
+  -H "Authorization: Bearer <jwt-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "My Project",
+    "description": "Project description",
+    "isPublic": true
+  }'
+
+# Update a project (requires JWT)
+curl -X PATCH http://localhost:3003/api/projects/{id} \
+  -H "Authorization: Bearer <jwt-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"description": "Updated description"}'
+```
+
+#### Discord & Sessions API
+
+```bash
+# Discord endpoints (may require auth based on configuration)
+curl -X GET http://localhost:3003/api/discord/vanish
+
 curl -X POST http://localhost:3003/api/discord/vanish \
-  -H "X-API-Key: cartel_your-api-key-here" \
   -H "Content-Type: application/json" \
   -d '{"channelId": "123", "guildId": "456", "duration": 3600}'
 
-# Set a channel setting
-curl -X PUT http://localhost:3003/api/discord/channels/guild-id/voice \
-  -H "X-API-Key: cartel_your-api-key-here" \
-  -H "Content-Type: application/json" \
-  -d '{"channelId": "channel-id-here"}'
-
 # Start a practice session
 curl -X POST http://localhost:3003/api/sessions/practice/start \
-  -H "X-API-Key: cartel_your-api-key-here" \
   -H "Content-Type: application/json" \
   -d '{"discordId": "discord-id-here", "notes": "Practice notes"}'
 ```
@@ -291,25 +405,15 @@ curl -X POST http://localhost:3003/api/sessions/practice/start \
 #### User Identity Examples
 
 ```bash
-# Get user by EVM address
-curl -X GET http://localhost:3003/api/users/id/by-evm/0x1234567890abcdef \
-  -H "X-API-Key: cartel_your-api-key-here"
+# Public endpoints - no auth required
+curl -X GET http://localhost:3003/api/users/id/by-evm/0x1234567890abcdef
 
-# Get user by Discord ID
-curl -X GET http://localhost:3003/api/users/id/by-discord/123456789 \
-  -H "X-API-Key: cartel_your-api-key-here"
+curl -X GET http://localhost:3003/api/users/id/by-discord/123456789
 
-# Get user by Farcaster FID
-curl -X GET http://localhost:3003/api/users/id/by-farcaster/1234 \
-  -H "X-API-Key: cartel_your-api-key-here"
+curl -X GET http://localhost:3003/api/users/identities/user-uuid-here
 
-# Get all identities for a user
-curl -X GET http://localhost:3003/api/users/identities/user-uuid-here \
-  -H "X-API-Key: cartel_your-api-key-here"
-
-# Create user with identity (auto-creates user if needed)
+# Create user with identity
 curl -X POST http://localhost:3003/api/users/id \
-  -H "X-API-Key: cartel_your-api-key-here" \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "evm",
@@ -318,12 +422,15 @@ curl -X POST http://localhost:3003/api/users/id \
   }'
 ```
 
-#### Admin Identity Management (requires admin scope)
+#### Admin Routes (requires JWT + admin role)
 
 ```bash
+# Admin operations require JWT authentication
+# TODO: Add role-based access control for admin operations
+
 # Connect identity to existing user
 curl -X POST http://localhost:3003/api/admin/identities/connect \
-  -H "X-API-Key: cartel_your-admin-key-here" \
+  -H "Authorization: Bearer <jwt-token>" \
   -H "Content-Type: application/json" \
   -d '{
     "userId": "user-uuid-here",
@@ -332,31 +439,14 @@ curl -X POST http://localhost:3003/api/admin/identities/connect \
     "isPrimary": false
   }'
 
-# Disconnect identity from user
-curl -X DELETE http://localhost:3003/api/admin/identities/disconnect \
-  -H "X-API-Key: cartel_your-admin-key-here" \
+# API Key Management
+curl -X POST http://localhost:3003/api/admin/keys \
+  -H "Authorization: Bearer <jwt-token>" \
   -H "Content-Type: application/json" \
   -d '{
-    "platform": "evm",
-    "identity": "0x1234567890abcdef"
-  }'
-
-# Set primary identity
-curl -X PUT http://localhost:3003/api/admin/identities/set-primary \
-  -H "X-API-Key: cartel_your-admin-key-here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "platform": "evm",
-    "identity": "0x1234567890abcdef"
-  }'
-
-# Merge users (moves all identities from source to target)
-curl -X POST http://localhost:3003/api/admin/identities/merge-users \
-  -H "X-API-Key: cartel_your-admin-key-here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "sourceUserId": "source-user-uuid",
-    "targetUserId": "target-user-uuid"
+    "userId": "user-uuid-here",
+    "name": "Bot API Key",
+    "scopes": ["read", "write"]
   }'
 ```
 
