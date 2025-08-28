@@ -70,35 +70,43 @@ bun run db:studio
 
 ## Authentication
 
-The API uses JWT tokens for authentication and API keys for future rate limiting.
+The API uses JWT tokens for authentication with client-side SIWE (Sign-In with Ethereum).
 
-### JWT Authentication (Required for protected routes)
+### JWT Authentication Flow
 
-Protected routes require a JWT token in the Authorization header:
+1. **Client generates SIWE message** with their own nonce
+2. **User signs the message** in their wallet
+3. **Client sends to API** with signature and API key:
+   - Endpoint: `POST /api/auth/verify`
+   - Headers: `X-API-Key: <client-api-key>`
+   - Body: `{ message, signature }`
+4. **API validates**:
+   - API key identifies the client
+   - Domain/URI matches client's allowed origins
+   - Signature is valid
+   - Timestamps are valid
+5. **API returns JWT** for authenticated requests
+
+Protected routes require the JWT:
 ```
 Authorization: Bearer <jwt-token>
 ```
 
-JWTs are obtained through SIWE (Sign-In with Ethereum) authentication:
-1. Request a nonce from `/api/auth/nonce`
-2. Sign the message with your wallet
-3. Verify signature at `/api/auth/verify` to receive JWT
+### API Keys (Required for SIWE verification)
 
-### API Keys (Optional, for rate limiting)
-
-API keys can be included for future rate limiting purposes:
+API keys identify client applications and configure SIWE validation:
 ```
 X-API-Key: <api-key>
 ```
 
-API keys are stored in the database with:
-- **Multiple keys** - Each user can have multiple API keys
-- **Scoped access** - Keys can have different permission scopes (for future use)
-- **Key rotation** - Rotate keys with grace periods
-- **Expiration** - Optional expiration dates
-- **Usage tracking** - Track last usage
+**API Key Features:**
+- **Client identification** - Each client app has its own key
+- **Allowed origins** - Whitelist of domains/URIs for SIWE
+- **Rate limiting** - Keys will be used for rate limiting
+- **Key rotation** - Rotate with grace periods
+- **Usage tracking** - Monitor last usage
 
-**Note:** API keys alone do not grant authentication - use JWT tokens for authenticated requests.
+**Important:** API keys are required for SIWE verification but do not grant authentication by themselves. JWTs are required for protected routes.
 
 ## API Endpoints
 
@@ -189,14 +197,24 @@ Public endpoints are accessible without authentication. Protected endpoints requ
 
 1. **Install dependencies:**
 ```bash
-npm install siwe ethers
+npm install siwe ethers uuid
 ```
 
-2. **Create auth hook (`hooks/useAuth.ts`):**
+2. **Configure your API key** (store in environment variables):
+```env
+NEXT_PUBLIC_API_KEY=cartel_your-api-key-here
+NEXT_PUBLIC_API_URL=https://api.cartel.sh
+```
+
+3. **Create auth hook (`hooks/useAuth.ts`):**
 ```typescript
 import { useState } from 'react';
 import { SiweMessage } from 'siwe';
 import { BrowserProvider } from 'ethers';
+import { v4 as uuidv4 } from 'uuid';
+
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY!;
+const API_URL = process.env.NEXT_PUBLIC_API_URL!;
 
 export function useAuth() {
   const [token, setToken] = useState<string | null>(null);
@@ -206,38 +224,39 @@ export function useAuth() {
     const signer = await provider.getSigner();
     const address = await signer.getAddress();
     
-    // 1. Get nonce
-    const nonceRes = await fetch('/api/auth/nonce', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address })
-    });
-    const { nonce } = await nonceRes.json();
-    
-    // 2. Create and sign message
+    // 1. Create SIWE message with client-generated nonce
     const message = new SiweMessage({
       domain: window.location.host,
       address,
-      statement: 'Sign in to Cartel',
+      statement: 'Sign in to MyApp',
       uri: window.location.origin,
       version: '1',
       chainId: 1,
-      nonce
+      nonce: uuidv4(), // Client generates unique nonce
+      expirationTime: new Date(Date.now() + 15 * 60 * 1000).toISOString(), // 15 min
     });
     
-    const signature = await signer.signMessage(message.prepareMessage());
+    const messageToSign = message.prepareMessage();
+    const signature = await signer.signMessage(messageToSign);
     
-    // 3. Verify and get JWT
-    const verifyRes = await fetch('/api/auth/verify', {
+    // 2. Send to API with API key
+    const verifyRes = await fetch(`${API_URL}/api/auth/verify`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'X-API-Key': API_KEY,
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
-        message: message.prepareMessage(),
+        message: messageToSign,
         signature
       })
     });
-    const { token } = await verifyRes.json();
     
+    if (!verifyRes.ok) {
+      throw new Error('Authentication failed');
+    }
+    
+    const { token } = await verifyRes.json();
     setToken(token);
     localStorage.setItem('jwt', token);
     return token;
@@ -344,21 +363,21 @@ await client.mergeUsers('source-user-uuid', 'target-user-uuid');
 #### Authentication Flow
 
 ```bash
-# 1. Get nonce for SIWE
-curl -X POST http://localhost:3003/api/auth/nonce \
-  -H "Content-Type: application/json" \
-  -d '{"address": "0x1234567890abcdef"}'
+# Client-side SIWE authentication
+# 1. Client generates SIWE message with their own nonce
+# 2. User signs the message
+# 3. Send to API with API key for verification
 
-# 2. Verify signature and get JWT (after signing with wallet)
 curl -X POST http://localhost:3003/api/auth/verify \
+  -H "X-API-Key: cartel_your-api-key-here" \
   -H "Content-Type: application/json" \
   -d '{
-    "message": "<signed-message>",
-    "signature": "<signature>"
+    "message": "example.com wants you to sign in with your Ethereum account:\n0x1234...\n\nSign in to MyApp\n\nURI: https://example.com\nVersion: 1\nChain ID: 1\nNonce: unique-client-nonce\nIssued At: 2024-01-01T00:00:00.000Z",
+    "signature": "0xsignature..."
   }'
-# Response: {"token": "<jwt-token>", "userId": "...", "address": "..."}
+# Response: {"token": "<jwt-token>", "userId": "...", "address": "...", "clientName": "MyApp"}
 
-# 3. Use JWT for authenticated requests
+# Use JWT for authenticated requests
 curl -X GET http://localhost:3003/api/auth/me \
   -H "Authorization: Bearer <jwt-token>"
 ```
@@ -425,8 +444,24 @@ curl -X POST http://localhost:3003/api/users/id \
 #### Admin Routes (requires JWT + admin role)
 
 ```bash
-# Admin operations require JWT authentication
-# TODO: Add role-based access control for admin operations
+# Create API key with client configuration
+curl -X POST http://localhost:3003/api/admin/keys \
+  -H "Authorization: Bearer <jwt-token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "userId": "user-uuid-here",
+    "name": "MyApp Production",
+    "clientName": "MyApp",
+    "allowedOrigins": [
+      "myapp.com",
+      "www.myapp.com",
+      "*.myapp.com",
+      "localhost:3000"
+    ],
+    "scopes": ["read", "write"],
+    "description": "Production API key for MyApp"
+  }'
+# Response includes the API key (shown only once)
 
 # Connect identity to existing user
 curl -X POST http://localhost:3003/api/admin/identities/connect \
@@ -437,16 +472,6 @@ curl -X POST http://localhost:3003/api/admin/identities/connect \
     "platform": "discord",
     "identity": "123456789",
     "isPrimary": false
-  }'
-
-# API Key Management
-curl -X POST http://localhost:3003/api/admin/keys \
-  -H "Authorization: Bearer <jwt-token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "userId": "user-uuid-here",
-    "name": "Bot API Key",
-    "scopes": ["read", "write"]
   }'
 ```
 
@@ -494,23 +519,31 @@ curl http://localhost:3003/health
 
 ## Security
 
+### Client-Side SIWE Security
+
+- **Origin Validation**: Each API key has allowed origins to prevent domain spoofing
+- **Client-Generated Nonces**: Clients generate unique nonces, preventing replay attacks
+- **Timestamp Validation**: Messages have expiration times to limit validity window
+- **Signature Verification**: Cryptographic verification ensures message authenticity
+- **Client Identification**: API keys identify which client authenticated users
+
 ### API Key Security
 
 - **Database Storage**: API keys are hashed using SHA-256 before storage - raw keys are never stored
 - **One-Time Display**: API keys are shown only once during creation and cannot be retrieved later
-- **Scoped Access**: Keys can be limited to specific permissions (read, write, admin)
+- **Allowed Origins**: Configure trusted domains/URIs per client application
 - **Key Rotation**: Support for rotating keys with grace periods to prevent downtime
-- **Expiration**: Keys can have optional expiration dates for temporary access
-- **Usage Tracking**: Last usage timestamps help identify inactive keys
+- **Usage Tracking**: Monitor last usage timestamps to identify inactive keys
 
 ### Best Practices
 
-- **Unique Keys Per Service**: Generate separate API keys for each service or bot
-- **Regular Rotation**: Rotate keys periodically, especially for high-privilege access
-- **Minimal Scopes**: Grant only the minimum required permissions
+- **Unique Keys Per Application**: Each client app should have its own API key
+- **Restrict Origins**: Only allow necessary domains in `allowedOrigins`
+- **Use Wildcards Carefully**: Be specific with subdomain wildcards (e.g., `*.app.example.com`)
 - **Environment Variables**: Never commit API keys to version control
-- **HTTPS Only**: Always use HTTPS in production to prevent key interception
-- **Monitor Usage**: Regularly review API key usage patterns for anomalies
+- **HTTPS Only**: Always use HTTPS in production
+- **Monitor Usage**: Review API key usage patterns for anomalies
+- **Short Message Expiry**: Use short expiration times for SIWE messages (15-30 minutes)
 
 ## License
 

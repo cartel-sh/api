@@ -22,11 +22,13 @@ app.post(
       name: z.string().min(1).max(100),
       description: z.string().optional(),
       scopes: z.array(z.string()).default(["read", "write"]),
+      clientName: z.string().optional(),
+      allowedOrigins: z.array(z.string()).optional(),
       expiresIn: z.number().optional(), // seconds until expiration
     }),
   ),
   async (c) => {
-    const { userId, name, description, scopes, expiresIn } = c.req.valid("json");
+    const { userId, name, description, scopes, clientName, allowedOrigins, expiresIn } = c.req.valid("json");
     
     try {
       // Check if user exists
@@ -58,6 +60,8 @@ app.post(
           keyPrefix,
           keyHash,
           scopes,
+          clientName,
+          allowedOrigins,
           expiresAt,
         })
         .returning();
@@ -300,6 +304,8 @@ app.post("/:id/rotate", async (c) => {
         keyPrefix: newKeyPrefix,
         keyHash: newKeyHash,
         scopes: existingKey.scopes,
+        clientName: existingKey.clientName,
+        allowedOrigins: existingKey.allowedOrigins,
         expiresAt: existingKey.expiresAt,
       });
     });

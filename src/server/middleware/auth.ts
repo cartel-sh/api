@@ -59,10 +59,12 @@ async function getApiKey(rawKey: string): Promise<ApiKey | null> {
     });
     
     if (result) {
-      // Ensure scopes is always an array
+      // Ensure scopes is always an array, preserve new fields
       const apiKey: ApiKey = {
         ...result,
         scopes: result.scopes || ["read", "write"],
+        clientName: result.clientName,
+        allowedOrigins: result.allowedOrigins,
       };
       
       // Cache the result
@@ -176,11 +178,13 @@ export async function optionalApiKey(c: Context, next: Next) {
     return;
   }
   
-  // Set context variables for use in routes (for rate limiting)
+  // Set context variables for use in routes (for rate limiting and client identification)
   c.set("apiKeyId", keyData.id);
   c.set("apiKeyUserId", keyData.userId); // Use apiKeyUserId to differentiate from JWT userId
   c.set("apiKeyScopes", keyData.scopes || ["read", "write"]);
   c.set("apiKeyType", "database");
+  c.set("clientName", keyData.clientName);
+  c.set("allowedOrigins", keyData.allowedOrigins);
   
   await next();
 }
@@ -282,10 +286,8 @@ export async function requireJwtAuth(c: Context, next: Next) {
  * API key identifies the application, JWT identifies the user
  */
 export async function requireFullAuth(c: Context, next: Next) {
-  // First check API key
   const apiKeyResult = await apiKeyAuth(c, async () => {});
   if (apiKeyResult) return apiKeyResult; // Return error if API key invalid
   
-  // Then check JWT
   return requireJwtAuth(c, next);
 }

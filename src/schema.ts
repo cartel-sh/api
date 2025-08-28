@@ -230,6 +230,8 @@ export const apiKeys = pgTable(
     keyHash: text("key_hash").notNull().unique(), // SHA-256 hash of full key
     description: text("description"),
     scopes: text("scopes").array().default(sql`ARRAY['read', 'write']::text[]`),
+    clientName: text("client_name"), // Name of the client application
+    allowedOrigins: text("allowed_origins").array(), // Allowed domains/URIs for SIWE
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     isActive: boolean("is_active").default(true).notNull(),
