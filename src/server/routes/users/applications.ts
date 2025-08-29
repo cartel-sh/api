@@ -7,6 +7,8 @@ const app = new OpenAPIHono();
 const createApplicationRoute = createRoute({
 	method: "post",
 	path: "/",
+	summary: "Create Application",
+	description: "Creates a new application with the provided details and assigns it a unique application number.",
 	request: {
 		body: {
 			content: {
@@ -32,7 +34,10 @@ const createApplicationRoute = createRoute({
 			description: "Success",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: z.object({
+						id: z.string(),
+						applicationNumber: z.number(),
+					}),
 				},
 			},
 		},
@@ -40,7 +45,9 @@ const createApplicationRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: z.object({
+						error: z.string(),
+					}),
 				},
 			},
 		},
@@ -71,14 +78,42 @@ app.openapi(createApplicationRoute, async (c) => {
 		return c.json({
 			id: application!.id,
 			applicationNumber: nextNumber,
-		});
+		}, 200);
 	} catch (error) {
 		console.error("[API] Error creating application:", error);
 		return c.json({ error: "Failed to create application" }, 500);
 	}
 });
 
-app.get("/pending", async (c) => {
+const getPendingApplicationsRoute = createRoute({
+	method: "get",
+	path: "/pending",
+	summary: "Get Pending Applications",
+	description: "Retrieves all applications with pending status ordered by submission date.",
+	responses: {
+		200: {
+			description: "List of pending applications",
+			content: {
+				"application/json": {
+					schema: z.array(z.any()),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Applications"],
+});
+
+app.openapi(getPendingApplicationsRoute, async (c) => {
 	try {
 		const result = await db
 			.select()
@@ -86,15 +121,74 @@ app.get("/pending", async (c) => {
 			.where(eq(applications.status, "pending"))
 			.orderBy(desc(applications.submittedAt));
 
-		return c.json(result);
+		return c.json(result, 200);
 	} catch (error) {
 		console.error("[API] Error getting pending applications:", error);
 		return c.json({ error: "Failed to get pending applications" }, 500);
 	}
 });
 
-app.get("/by-message/:messageId", async (c) => {
-	const messageId = c.req.param("messageId");
+const getApplicationByMessageRoute = createRoute({
+	method: "get",
+	path: "/by-message/{messageId}",
+	summary: "Get Application by Message",
+	description: "Retrieves an application by its associated message ID.",
+	request: {
+		params: z.object({
+			messageId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			description: "Application found",
+			content: {
+				"application/json": {
+					schema: z.object({
+						id: z.string(),
+						messageId: z.string(),
+						walletAddress: z.string(),
+						ensName: z.string().nullable(),
+						github: z.string().nullable(),
+						farcaster: z.string().nullable(),
+						lens: z.string().nullable(),
+						twitter: z.string().nullable(),
+						excitement: z.string(),
+						motivation: z.string(),
+						signature: z.string(),
+						applicationNumber: z.number(),
+						status: z.string().nullable(),
+						submittedAt: z.string().datetime().nullable(),
+						decidedAt: z.string().datetime().nullable(),
+					}),
+				},
+			},
+		},
+		404: {
+			description: "Application not found",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Applications"],
+});
+
+app.openapi(getApplicationByMessageRoute, async (c) => {
+	const { messageId } = c.req.valid("param");
 
 	try {
 		const result = await db
@@ -106,19 +200,86 @@ app.get("/by-message/:messageId", async (c) => {
 			return c.json({ error: "Application not found" }, 404);
 		}
 
-		return c.json(result[0]);
+		const application = result[0];
+		return c.json({
+			id: application.id,
+			messageId: application.messageId,
+			walletAddress: application.walletAddress,
+			ensName: application.ensName,
+			github: application.github,
+			farcaster: application.farcaster,
+			lens: application.lens,
+			twitter: application.twitter,
+			excitement: application.excitement,
+			motivation: application.motivation,
+			signature: application.signature,
+			applicationNumber: application.applicationNumber,
+			status: application.status || null,
+			submittedAt: application.submittedAt?.toISOString() || null,
+			decidedAt: application.decidedAt?.toISOString() || null,
+		}, 200);
 	} catch (error) {
 		console.error("[API] Error getting application by message ID:", error);
 		return c.json({ error: "Failed to get application" }, 500);
 	}
 });
 
-app.get("/by-number/:number", async (c) => {
-	const number = parseInt(c.req.param("number"));
+const getApplicationByNumberRoute = createRoute({
+	method: "get",
+	path: "/by-number/{number}",
+	summary: "Get Application by Number",
+	description: "Retrieves an application by its application number.",
+	request: {
+		params: z.object({
+			number: z.string().regex(/^\d+$/, "Must be a number"),
+		}),
+	},
+	responses: {
+		200: {
+			description: "Application found",
+			content: {
+				"application/json": {
+					schema: z.any(),
+				},
+			},
+		},
+		400: {
+			description: "Invalid application number",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+		404: {
+			description: "Application not found",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Applications"],
+});
 
-	if (isNaN(number)) {
-		return c.json({ error: "Invalid application number" }, 400);
-	}
+app.openapi(getApplicationByNumberRoute, async (c) => {
+	const { number: numberStr } = c.req.valid("param");
+	const number = parseInt(numberStr);
 
 	try {
 		const result = await db
@@ -130,7 +291,24 @@ app.get("/by-number/:number", async (c) => {
 			return c.json({ error: "Application not found" }, 404);
 		}
 
-		return c.json(result[0]);
+		const application = result[0];
+		return c.json({
+			id: application.id,
+			messageId: application.messageId,
+			walletAddress: application.walletAddress,
+			ensName: application.ensName,
+			github: application.github,
+			farcaster: application.farcaster,
+			lens: application.lens,
+			twitter: application.twitter,
+			excitement: application.excitement,
+			motivation: application.motivation,
+			signature: application.signature,
+			applicationNumber: application.applicationNumber,
+			status: application.status || null,
+			submittedAt: application.submittedAt?.toISOString() || null,
+			decidedAt: application.decidedAt?.toISOString() || null,
+		}, 200);
 	} catch (error) {
 		console.error("[API] Error getting application by number:", error);
 		return c.json({ error: "Failed to get application" }, 500);
@@ -140,6 +318,8 @@ app.get("/by-number/:number", async (c) => {
 const updateApplicationStatusRoute = createRoute({
 	method: "patch",
 	path: "/{id}/status",
+	summary: "Update Application Status",
+	description: "Updates the status of an application to approved or rejected (requires authentication).",
 	middleware: [requireJwtAuth],
 	request: {
 		params: z.object({
@@ -160,7 +340,9 @@ const updateApplicationStatusRoute = createRoute({
 			description: "Success",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: z.object({
+						success: z.boolean(),
+					}),
 				},
 			},
 		},
@@ -168,7 +350,9 @@ const updateApplicationStatusRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: z.object({
+						error: z.string(),
+					}),
 				},
 			},
 		},
@@ -189,20 +373,56 @@ app.openapi(updateApplicationStatusRoute, async (c) => {
 			})
 			.where(eq(applications.id, id));
 
-		return c.json({ success: true });
+		return c.json({ success: true }, 200);
 	} catch (error) {
 		console.error("[API] Error updating application status:", error);
 		return c.json({ error: "Failed to update application status" }, 500);
 	}
 });
 
-app.delete("/:id", requireJwtAuth, async (c) => {
-	const id = c.req.param("id");
+const deleteApplicationRoute = createRoute({
+	method: "delete",
+	path: "/{id}",
+	summary: "Delete Application",
+	description: "Deletes an application by its ID (requires authentication).",
+	middleware: [requireJwtAuth],
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			description: "Application deleted successfully",
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+					}),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Applications"],
+});
+
+app.openapi(deleteApplicationRoute, async (c) => {
+	const { id } = c.req.valid("param");
 
 	try {
 		await db.delete(applications).where(eq(applications.id, id));
 
-		return c.json({ success: true });
+		return c.json({ success: true }, 200);
 	} catch (error) {
 		console.error("[API] Error deleting application:", error);
 		return c.json({ error: "Failed to delete application" }, 500);
@@ -213,6 +433,8 @@ app.delete("/:id", requireJwtAuth, async (c) => {
 const addVoteRoute = createRoute({
 	method: "post",
 	path: "/{id}/votes",
+	summary: "Add Application Vote",
+	description: "Adds or updates a vote (approve/reject) for an application by a specific user.",
 	request: {
 		params: z.object({
 			id: z.string(),
@@ -234,7 +456,9 @@ const addVoteRoute = createRoute({
 			description: "Success",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: z.object({
+						success: z.boolean(),
+					}),
 				},
 			},
 		},
@@ -242,7 +466,9 @@ const addVoteRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: z.object({
+						error: z.string(),
+					}),
 				},
 			},
 		},
@@ -271,14 +497,52 @@ app.openapi(addVoteRoute, async (c) => {
 				},
 			});
 
-		return c.json({ success: true });
+		return c.json({ success: true }, 200);
 	} catch (error) {
 		console.error("[API] Error adding vote:", error);
 		return c.json({ error: "Failed to add vote" }, 500);
 	}
 });
-app.get("/:id/votes", async (c) => {
-	const applicationId = c.req.param("id");
+const getApplicationVotesRoute = createRoute({
+	method: "get",
+	path: "/{id}/votes",
+	summary: "Get Application Votes",
+	description: "Retrieves all votes for an application with counts for approvals and rejections.",
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			description: "Application votes with counts",
+			content: {
+				"application/json": {
+					schema: z.object({
+						approvals: z.array(z.any()),
+						rejections: z.array(z.any()),
+						approvalCount: z.number(),
+						rejectionCount: z.number(),
+					}),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Applications"],
+});
+
+app.openapi(getApplicationVotesRoute, async (c) => {
+	const { id: applicationId } = c.req.valid("param");
 
 	try {
 		const votes = await db
@@ -294,7 +558,7 @@ app.get("/:id/votes", async (c) => {
 			rejections,
 			approvalCount: approvals.length,
 			rejectionCount: rejections.length,
-		});
+		}, 200);
 	} catch (error) {
 		console.error("[API] Error getting votes:", error);
 		return c.json({ error: "Failed to get votes" }, 500);

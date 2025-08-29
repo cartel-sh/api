@@ -6,6 +6,8 @@ const app = new OpenAPIHono();
 const getUserIdentitiesRoute = createRoute({
 	method: "get",
 	path: "/{userId}",
+	summary: "Get User Identities",
+	description: "Retrieves all identities associated with a specific user ID, ordered by primary status.",
 	request: {
 		params: z.object({
 			userId: z.string(),

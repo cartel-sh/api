@@ -40,6 +40,8 @@ const querySchema = z.object({
 const listProjectsRoute = createRoute({
 	method: "get",
 	path: "/",
+	description: "List projects with optional filtering by search terms, tags, user, and visibility",
+	summary: "List projects",
 	request: {
 		query: querySchema,
 	},
@@ -169,6 +171,8 @@ app.openapi(listProjectsRoute, async (c) => {
 const getProjectRoute = createRoute({
 	method: "get",
 	path: "/{id}",
+	description: "Retrieve detailed information about a specific project by its ID",
+	summary: "Get project details",
 	request: {
 		params: z.object({
 			id: z.string(),
@@ -246,6 +250,8 @@ app.openapi(getProjectRoute, async (c) => {
 const createProjectRoute = createRoute({
 	method: "post",
 	path: "/",
+	description: "Create a new project for the authenticated user",
+	summary: "Create project",
 	middleware: [requireJwtAuth, requireScopes("write")],
 	request: {
 		body: {
@@ -311,6 +317,8 @@ app.openapi(createProjectRoute, async (c) => {
 const updateProjectRoute = createRoute({
 	method: "patch",
 	path: "/{id}",
+	description: "Update an existing project owned by the authenticated user",
+	summary: "Update project",
 	middleware: [requireJwtAuth, requireScopes("write")],
 	request: {
 		params: z.object({
@@ -385,6 +393,8 @@ app.openapi(updateProjectRoute, async (c) => {
 const deleteProjectRoute = createRoute({
 	method: "delete",
 	path: "/{id}",
+	description: "Delete a project owned by the authenticated user",
+	summary: "Delete project",
 	middleware: [requireJwtAuth, requireScopes("write")],
 	request: {
 		params: z.object({
@@ -433,6 +443,8 @@ app.openapi(deleteProjectRoute, async (c) => {
 const getUserProjectsRoute = createRoute({
 	method: "get",
 	path: "/user/{userId}",
+	description: "List all projects belonging to a specific user",
+	summary: "Get user projects",
 	request: {
 		params: z.object({
 			userId: z.string(),
@@ -489,6 +501,8 @@ app.openapi(getUserProjectsRoute, async (c) => {
 const getPopularTagsRoute = createRoute({
 	method: "get",
 	path: "/tags/popular",
+	description: "Retrieve the most popular tags used across all public projects",
+	summary: "Get popular tags",
 	responses: {
 		200: {
 			description: "Popular project tags",

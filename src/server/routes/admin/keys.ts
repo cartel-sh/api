@@ -15,6 +15,8 @@ app.use("*", requireJwtAuth);
 const createApiKeyRoute = createRoute({
 	method: "post",
 	path: "/",
+	summary: "Create API Key",
+	description: "Creates a new API key for a user with specified permissions and settings (requires authentication).",
 	middleware: [requireJwtAuth],
 	request: {
 		body: {
@@ -41,7 +43,16 @@ const createApiKeyRoute = createRoute({
 			description: "Success",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: z.object({
+						id: z.string(),
+						userId: z.string(),
+						name: z.string(),
+						description: z.string().optional(),
+						scopes: z.array(z.string()),
+						expiresAt: z.string().datetime().nullable(),
+						apiKey: z.string(),
+						message: z.string(),
+					}),
 				},
 			},
 		},
@@ -49,7 +60,9 @@ const createApiKeyRoute = createRoute({
 			description: "Not found",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: z.object({
+						error: z.string(),
+					}),
 				},
 			},
 		},
@@ -57,7 +70,9 @@ const createApiKeyRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: z.object({
+						error: z.string(),
+					}),
 				},
 			},
 		},
@@ -117,20 +132,54 @@ app.openapi(createApiKeyRoute, async (c) => {
 			id: newKey.id,
 			userId: newKey.userId,
 			name: newKey.name,
-			description: newKey.description,
-			scopes: newKey.scopes,
-			expiresAt: newKey.expiresAt,
+			description: newKey.description || undefined,
+			scopes: newKey.scopes || [],
+			expiresAt: newKey.expiresAt?.toISOString() || null,
 			apiKey,
 			message: "Save this API key securely. It will not be shown again.",
-		});
+		}, 200);
 	} catch (error) {
 		console.error("[API] Error creating API key:", error);
 		return c.json({ error: "Failed to create API key" }, 500);
 	}
 });
 
-app.get("/", async (c) => {
-	const userId = c.req.query("userId");
+const listApiKeysRoute = createRoute({
+	method: "get",
+	path: "/",
+	summary: "List API Keys",
+	description: "Lists all API keys, optionally filtered by user ID (requires authentication).",
+	middleware: [requireJwtAuth],
+	request: {
+		query: z.object({
+			userId: z.string().optional(),
+		}),
+	},
+	responses: {
+		200: {
+			description: "List of API keys",
+			content: {
+				"application/json": {
+					schema: z.array(z.any()),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Admin"],
+});
+
+app.openapi(listApiKeysRoute, async (c) => {
+	const { userId } = c.req.valid("query");
 
 	try {
 		let keys: any[];
@@ -179,15 +228,75 @@ app.get("/", async (c) => {
 				: undefined,
 		}));
 
-		return c.json(sanitizedKeys);
+		return c.json(sanitizedKeys, 200);
 	} catch (error) {
 		console.error("[API] Error listing API keys:", error);
 		return c.json({ error: "Failed to list API keys" }, 500);
 	}
 });
 
-app.get("/:id", async (c) => {
-	const keyId = c.req.param("id");
+const getApiKeyRoute = createRoute({
+	method: "get",
+	path: "/{id}",
+	summary: "Get API Key",
+	description: "Retrieves details of a specific API key by its ID (requires authentication).",
+	middleware: [requireJwtAuth],
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			description: "API key details",
+			content: {
+				"application/json": {
+					schema: z.object({
+						id: z.string(),
+						userId: z.string(),
+						name: z.string(),
+						description: z.string().optional(),
+						keyPrefix: z.string(),
+						scopes: z.array(z.string()),
+						lastUsedAt: z.string().datetime().nullable(),
+						expiresAt: z.string().datetime().nullable(),
+						isActive: z.boolean(),
+						createdAt: z.string().datetime().nullable(),
+						updatedAt: z.string().datetime().nullable(),
+						user: z.object({
+							id: z.string(),
+							identities: z.array(z.any()),
+						}),
+					}),
+				},
+			},
+		},
+		404: {
+			description: "API key not found",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Admin"],
+});
+
+app.openapi(getApiKeyRoute, async (c) => {
+	const { id: keyId } = c.req.valid("param");
 
 	try {
 		const key = await db.query.apiKeys.findFirst({
@@ -209,19 +318,19 @@ app.get("/:id", async (c) => {
 			id: key.id,
 			userId: key.userId,
 			name: key.name,
-			description: key.description,
+			description: key.description || undefined,
 			keyPrefix: `cartel_${key.keyPrefix}...`,
-			scopes: key.scopes,
-			lastUsedAt: key.lastUsedAt,
-			expiresAt: key.expiresAt,
+			scopes: key.scopes || [],
+			lastUsedAt: key.lastUsedAt?.toISOString() || null,
+			expiresAt: key.expiresAt?.toISOString() || null,
 			isActive: key.isActive,
-			createdAt: key.createdAt,
-			updatedAt: key.updatedAt,
+			createdAt: key.createdAt?.toISOString() || null,
+			updatedAt: key.updatedAt?.toISOString() || null,
 			user: {
 				id: key.user.id,
 				identities: key.user.identities,
 			},
-		});
+		}, 200);
 	} catch (error) {
 		console.error("[API] Error getting API key:", error);
 		return c.json({ error: "Failed to get API key" }, 500);
@@ -231,6 +340,8 @@ app.get("/:id", async (c) => {
 const updateApiKeyRoute = createRoute({
 	method: "patch",
 	path: "/{id}",
+	summary: "Update API Key",
+	description: "Updates an existing API key's properties such as name, description, scopes, or status (requires authentication).",
 	middleware: [requireJwtAuth],
 	request: {
 		params: z.object({
@@ -255,7 +366,14 @@ const updateApiKeyRoute = createRoute({
 			description: "Success",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: z.object({
+						id: z.string(),
+						name: z.string(),
+						description: z.string().optional(),
+						scopes: z.array(z.string()),
+						isActive: z.boolean(),
+						expiresAt: z.string().datetime().nullable(),
+					}),
 				},
 			},
 		},
@@ -263,7 +381,9 @@ const updateApiKeyRoute = createRoute({
 			description: "Not found",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: z.object({
+						error: z.string(),
+					}),
 				},
 			},
 		},
@@ -271,7 +391,9 @@ const updateApiKeyRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: z.object({
+						error: z.string(),
+					}),
 				},
 			},
 		},
@@ -301,19 +423,66 @@ app.openapi(updateApiKeyRoute, async (c) => {
 		return c.json({
 			id: updated.id,
 			name: updated.name,
-			description: updated.description,
-			scopes: updated.scopes,
+			description: updated.description || undefined,
+			scopes: updated.scopes || [],
 			isActive: updated.isActive,
-			expiresAt: updated.expiresAt,
-		});
+			expiresAt: updated.expiresAt?.toISOString() || null,
+		}, 200);
 	} catch (error) {
 		console.error("[API] Error updating API key:", error);
 		return c.json({ error: "Failed to update API key" }, 500);
 	}
 });
 
-app.delete("/:id", async (c) => {
-	const keyId = c.req.param("id");
+const deleteApiKeyRoute = createRoute({
+	method: "delete",
+	path: "/{id}",
+	summary: "Delete API Key",
+	description: "Deactivates an API key by setting its status to inactive (requires authentication).",
+	middleware: [requireJwtAuth],
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			description: "API key deactivated successfully",
+			content: {
+				"application/json": {
+					schema: z.object({
+						success: z.boolean(),
+						message: z.string(),
+					}),
+				},
+			},
+		},
+		404: {
+			description: "API key not found",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Admin"],
+});
+
+app.openapi(deleteApiKeyRoute, async (c) => {
+	const { id: keyId } = c.req.valid("param");
 
 	try {
 		const [deactivated] = await db
@@ -332,16 +501,68 @@ app.delete("/:id", async (c) => {
 		return c.json({
 			success: true,
 			message: "API key deactivated successfully",
-		});
+		}, 200);
 	} catch (error) {
 		console.error("[API] Error deactivating API key:", error);
 		return c.json({ error: "Failed to deactivate API key" }, 500);
 	}
 });
 
-app.post("/:id/rotate", async (c) => {
-	const keyId = c.req.param("id");
-	const gracePeriod = parseInt(c.req.query("gracePeriod") || "300");
+const rotateApiKeyRoute = createRoute({
+	method: "post",
+	path: "/{id}/rotate",
+	summary: "Rotate API Key",
+	description: "Generates a new API key and sets a grace period for the old one (requires authentication).",
+	middleware: [requireJwtAuth],
+	request: {
+		params: z.object({
+			id: z.string(),
+		}),
+		query: z.object({
+			gracePeriod: z.string().optional().default("300"),
+		}),
+	},
+	responses: {
+		200: {
+			description: "API key rotated successfully",
+			content: {
+				"application/json": {
+					schema: z.object({
+						newApiKey: z.string(),
+						message: z.string(),
+						expiresAt: z.string(),
+					}),
+				},
+			},
+		},
+		404: {
+			description: "API key not found",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Admin"],
+});
+
+app.openapi(rotateApiKeyRoute, async (c) => {
+	const { id: keyId } = c.req.valid("param");
+	const { gracePeriod: gracePeriodStr } = c.req.valid("query");
+	const gracePeriod = parseInt(gracePeriodStr);
 
 	try {
 		const existingKey = await db.query.apiKeys.findFirst({
@@ -382,8 +603,8 @@ app.post("/:id/rotate", async (c) => {
 		return c.json({
 			newApiKey,
 			message: `New API key generated. Old key will expire in ${gracePeriod} seconds.`,
-			expiresAt: new Date(Date.now() + gracePeriod * 1000),
-		});
+			expiresAt: new Date(Date.now() + gracePeriod * 1000).toISOString(),
+		}, 200);
 	} catch (error) {
 		console.error("[API] Error rotating API key:", error);
 		return c.json({ error: "Failed to rotate API key" }, 500);

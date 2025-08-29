@@ -6,9 +6,12 @@ import type { PracticeSession } from "../../../schema";
 import { getUserByDiscordId } from "../../utils";
 
 const app = new OpenAPIHono();
+
 const startPracticeSessionRoute = createRoute({
 	method: "post",
 	path: "/start",
+	summary: "Start Practice Session",
+	description: "Starts a new practice session or returns an existing active session for a user.",
 	request: {
 		body: {
 			content: {
@@ -91,7 +94,15 @@ app.openapi(startPracticeSessionRoute, async (c) => {
 		});
 
 		if (activeSession) {
-			return c.json(activeSession as PracticeSession, 200);
+			return c.json({
+			id: activeSession.id,
+			userId: activeSession.userId,
+			startTime: activeSession.startTime.toISOString(),
+			endTime: activeSession.endTime?.toISOString() || null,
+			duration: activeSession.duration,
+			date: activeSession.date,
+			notes: activeSession.notes,
+		}, 200);
 		}
 
 		const now = DateTime.now();
@@ -105,15 +116,30 @@ app.openapi(startPracticeSessionRoute, async (c) => {
 			})
 			.returning();
 
-		return c.json(newSession as PracticeSession, 200);
+		if (!newSession) {
+			return c.json({ error: "Failed to start practice session" }, 500);
+		}
+
+		return c.json({
+			id: newSession.id,
+			userId: newSession.userId,
+			startTime: newSession.startTime.toISOString(),
+			endTime: newSession.endTime?.toISOString() || null,
+			duration: newSession.duration,
+			date: newSession.date,
+			notes: newSession.notes,
+		}, 200);
 	} catch (error) {
 		console.error("[API] Error starting practice session:", error);
 		return c.json({ error: "Failed to start practice session" }, 500);
 	}
 });
+
 const stopPracticeSessionRoute = createRoute({
 	method: "post",
 	path: "/stop",
+	summary: "Stop Practice Session",
+	description: "Stops the currently active practice session for a user and calculates the total duration.",
 	request: {
 		body: {
 			content: {
@@ -221,15 +247,62 @@ app.openapi(stopPracticeSessionRoute, async (c) => {
 			.where(eq(practiceSessions.id, activeSession.id))
 			.returning();
 
-		return c.json(updatedSession as PracticeSession, 200);
+		if (!updatedSession) {
+			return c.json({ error: "Failed to stop practice session" }, 500);
+		}
+
+		return c.json({
+			id: updatedSession.id,
+			userId: updatedSession.userId,
+			startTime: updatedSession.startTime.toISOString(),
+			endTime: updatedSession.endTime?.toISOString() || null,
+			duration: updatedSession.duration,
+			date: updatedSession.date,
+			notes: updatedSession.notes,
+		}, 200);
 	} catch (error) {
 		console.error("[API] Error stopping practice session:", error);
 		return c.json({ error: "Failed to stop practice session" }, 500);
 	}
 });
 
-app.get("/stats/daily/discord/:discordId", async (c) => {
-	const discordId = c.req.param("discordId");
+const getDailyStatsDiscordRoute = createRoute({
+	method: "get",
+	path: "/stats/daily/discord/{discordId}",
+	summary: "Daily Stats Discord",
+	description: "Gets daily practice session statistics for a user by Discord ID.",
+	request: {
+		params: z.object({
+			discordId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			description: "Daily practice statistics",
+			content: {
+				"application/json": {
+					schema: z.object({
+						totalDuration: z.number(),
+					}),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Sessions"],
+});
+
+app.openapi(getDailyStatsDiscordRoute, async (c) => {
+	const { discordId } = c.req.valid("param");
 
 	try {
 		const userId = await getUserByDiscordId(discordId);
@@ -255,8 +328,43 @@ app.get("/stats/daily/discord/:discordId", async (c) => {
 	}
 });
 
-app.get("/stats/daily/user/:userId", async (c) => {
-	const userId = c.req.param("userId");
+const getDailyStatsUserRoute = createRoute({
+	method: "get",
+	path: "/stats/daily/user/{userId}",
+	summary: "Daily Stats User",
+	description: "Gets daily practice session statistics for a user by user ID.",
+	request: {
+		params: z.object({
+			userId: z.string().uuid(),
+		}),
+	},
+	responses: {
+		200: {
+			description: "Daily practice statistics",
+			content: {
+				"application/json": {
+					schema: z.object({
+						totalDuration: z.number(),
+					}),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Sessions"],
+});
+
+app.openapi(getDailyStatsUserRoute, async (c) => {
+	const { userId } = c.req.valid("param");
 
 	try {
 		const today = DateTime.now().toFormat("yyyy-MM-dd");
@@ -281,8 +389,41 @@ app.get("/stats/daily/user/:userId", async (c) => {
 	}
 });
 
-app.get("/stats/weekly/discord/:discordId", async (c) => {
-	const discordId = c.req.param("discordId");
+const getWeeklyStatsDiscordRoute = createRoute({
+	method: "get",
+	path: "/stats/weekly/discord/{discordId}",
+	summary: "Weekly Stats Discord",
+	description: "Gets weekly practice session statistics for a user by Discord ID.",
+	request: {
+		params: z.object({
+			discordId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			description: "Weekly practice statistics by date",
+			content: {
+				"application/json": {
+					schema: z.record(z.string(), z.number()),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Sessions"],
+});
+
+app.openapi(getWeeklyStatsDiscordRoute, async (c) => {
+	const { discordId } = c.req.valid("param");
 
 	try {
 		const userId = await getUserByDiscordId(discordId);
@@ -325,8 +466,41 @@ app.get("/stats/weekly/discord/:discordId", async (c) => {
 	}
 });
 
-app.get("/stats/weekly/user/:userId", async (c) => {
-	const userId = c.req.param("userId");
+const getWeeklyStatsUserRoute = createRoute({
+	method: "get",
+	path: "/stats/weekly/user/{userId}",
+	summary: "Weekly Stats User",
+	description: "Gets weekly practice session statistics for a user by user ID.",
+	request: {
+		params: z.object({
+			userId: z.string().uuid(),
+		}),
+	},
+	responses: {
+		200: {
+			description: "Weekly practice statistics by date",
+			content: {
+				"application/json": {
+					schema: z.record(z.string(), z.number()),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Sessions"],
+});
+
+app.openapi(getWeeklyStatsUserRoute, async (c) => {
+	const { userId } = c.req.valid("param");
 
 	try {
 		const today = DateTime.now();
@@ -368,8 +542,41 @@ app.get("/stats/weekly/user/:userId", async (c) => {
 	}
 });
 
-app.get("/stats/monthly/discord/:discordId", async (c) => {
-	const discordId = c.req.param("discordId");
+const getMonthlyStatsDiscordRoute = createRoute({
+	method: "get",
+	path: "/stats/monthly/discord/{discordId}",
+	summary: "Monthly Stats Discord",
+	description: "Gets monthly practice session statistics for a user by Discord ID.",
+	request: {
+		params: z.object({
+			discordId: z.string(),
+		}),
+	},
+	responses: {
+		200: {
+			description: "Monthly practice statistics by date",
+			content: {
+				"application/json": {
+					schema: z.record(z.string(), z.number()),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Sessions"],
+});
+
+app.openapi(getMonthlyStatsDiscordRoute, async (c) => {
+	const { discordId } = c.req.valid("param");
 
 	try {
 		const userId = await getUserByDiscordId(discordId);
@@ -412,8 +619,41 @@ app.get("/stats/monthly/discord/:discordId", async (c) => {
 	}
 });
 
-app.get("/stats/monthly/user/:userId", async (c) => {
-	const userId = c.req.param("userId");
+const getMonthlyStatsUserRoute = createRoute({
+	method: "get",
+	path: "/stats/monthly/user/{userId}",
+	summary: "Monthly Stats User",
+	description: "Gets monthly practice session statistics for a user by user ID.",
+	request: {
+		params: z.object({
+			userId: z.string().uuid(),
+		}),
+	},
+	responses: {
+		200: {
+			description: "Monthly practice statistics by date",
+			content: {
+				"application/json": {
+					schema: z.record(z.string(), z.number()),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Sessions"],
+});
+
+app.openapi(getMonthlyStatsUserRoute, async (c) => {
+	const { userId } = c.req.valid("param");
 
 	try {
 		const now = DateTime.now();
@@ -455,7 +695,40 @@ app.get("/stats/monthly/user/:userId", async (c) => {
 	}
 });
 
-app.get("/leaderboard", async (c) => {
+const getLeaderboardRoute = createRoute({
+	method: "get",
+	path: "/leaderboard",
+	summary: "Practice Leaderboard",
+	description: "Gets the top 10 users by total practice duration.",
+	responses: {
+		200: {
+			description: "Top users by practice duration",
+			content: {
+				"application/json": {
+					schema: z.array(
+						z.object({
+							identity: z.string(),
+							totalDuration: z.number(),
+						}),
+					),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Sessions"],
+});
+
+app.openapi(getLeaderboardRoute, async (c) => {
 	try {
 		const results = await db
 			.select({
@@ -487,7 +760,37 @@ app.get("/leaderboard", async (c) => {
 	}
 });
 
-app.get("/total-hours", async (c) => {
+const getTotalHoursRoute = createRoute({
+	method: "get",
+	path: "/total-hours",
+	summary: "Total Practice Hours",
+	description: "Gets the total practice hours across all users.",
+	responses: {
+		200: {
+			description: "Total practice hours",
+			content: {
+				"application/json": {
+					schema: z.object({
+						totalHours: z.number(),
+					}),
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Sessions"],
+});
+
+app.openapi(getTotalHoursRoute, async (c) => {
 	try {
 		const result = await db
 			.select({

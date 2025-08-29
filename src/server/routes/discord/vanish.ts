@@ -7,6 +7,8 @@ const app = new OpenAPIHono();
 const createVanishingChannelRoute = createRoute({
 	method: "post",
 	path: "/",
+	description: "Configure a Discord channel to automatically delete messages after a specified duration",
+	summary: "Create vanishing channel",
 	request: {
 		body: {
 			content: {
@@ -79,6 +81,8 @@ app.openapi(createVanishingChannelRoute, async (c) => {
 const deleteVanishingChannelRoute = createRoute({
 	method: "delete",
 	path: "/{channelId}",
+	description: "Remove vanishing configuration from a Discord channel",
+	summary: "Delete vanishing channel",
 	request: {
 		params: z.object({
 			channelId: z.string(),
@@ -127,6 +131,8 @@ app.openapi(deleteVanishingChannelRoute, async (c) => {
 const listVanishingChannelsRoute = createRoute({
 	method: "get",
 	path: "/",
+	description: "List all configured vanishing channels, optionally filtered by guild ID",
+	summary: "List vanishing channels",
 	request: {
 		query: z.object({
 			guildId: z.string().optional(),
@@ -195,6 +201,8 @@ app.openapi(listVanishingChannelsRoute, async (c) => {
 const getVanishingChannelRoute = createRoute({
 	method: "get",
 	path: "/{channelId}",
+	description: "Get detailed information about a specific vanishing channel configuration",
+	summary: "Get vanishing channel",
 	request: {
 		params: z.object({
 			channelId: z.string(),
@@ -269,6 +277,8 @@ app.openapi(getVanishingChannelRoute, async (c) => {
 const updateChannelStatsRoute = createRoute({
 	method: "patch",
 	path: "/{channelId}/stats",
+	description: "Update the deletion statistics for a vanishing channel",
+	summary: "Update channel stats",
 	request: {
 		params: z.object({
 			channelId: z.string(),

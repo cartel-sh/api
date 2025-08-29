@@ -18,6 +18,8 @@ const PlatformEnum = z.enum([
 const connectIdentityRoute = createRoute({
 	method: "post",
 	path: "/connect",
+	summary: "Connect Identity",
+	description: "Connects a new identity to an existing user account (requires authentication).",
 	middleware: [requireJwtAuth],
 	request: {
 		body: {
@@ -145,6 +147,8 @@ app.openapi(connectIdentityRoute, async (c) => {
 const disconnectIdentityRoute = createRoute({
 	method: "delete",
 	path: "/disconnect",
+	summary: "Disconnect Identity",
+	description: "Disconnects an identity from a user account, ensuring at least one identity remains (requires authentication).",
 	middleware: [requireJwtAuth],
 	request: {
 		body: {
@@ -264,6 +268,8 @@ app.openapi(disconnectIdentityRoute, async (c) => {
 const setPrimaryRoute = createRoute({
 	method: "put",
 	path: "/set-primary",
+	summary: "Set Primary Identity",
+	description: "Sets an identity as the primary identity for a user account (requires authentication).",
 	middleware: [requireJwtAuth],
 	request: {
 		body: {
@@ -363,6 +369,8 @@ app.openapi(setPrimaryRoute, async (c) => {
 const mergeUsersRoute = createRoute({
 	method: "post",
 	path: "/merge-users",
+	summary: "Merge Users",
+	description: "Merges two user accounts by transferring all identities from the source user to the target user (requires authentication).",
 	middleware: [requireJwtAuth],
 	request: {
 		body: {

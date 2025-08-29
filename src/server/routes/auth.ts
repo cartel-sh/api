@@ -29,6 +29,8 @@ const JWT_EXPIRY = "7d";
 const verifyRoute = createRoute({
 	method: "post",
 	path: "/verify",
+	description: "Verify SIWE (Sign-In with Ethereum) message and signature to authenticate user",
+	summary: "Authenticate with SIWE",
 	request: {
 		body: {
 			content: {
@@ -245,6 +247,8 @@ app.openapi(verifyRoute, async (c) => {
 const getMeRoute = createRoute({
 	method: "get",
 	path: "/me",
+	description: "Retrieve information about the currently authenticated user",
+	summary: "Get current user",
 	security: [
 		{
 			bearerAuth: [],
@@ -330,6 +334,8 @@ app.openapi(getMeRoute, async (c) => {
 const logoutRoute = createRoute({
 	method: "post",
 	path: "/logout",
+	description: "Logout the current user by clearing authentication cookies",
+	summary: "Logout user",
 	responses: {
 		200: {
 			description: "Successfully logged out",
