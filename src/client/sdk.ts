@@ -1,447 +1,455 @@
 type UserIdentityLookup = {
-  evm?: string;
-  lens?: string;
-  farcaster?: string;
-  telegram?: string;
-  discord?: string;
+	evm?: string;
+	lens?: string;
+	farcaster?: string;
+	telegram?: string;
+	discord?: string;
 };
 
 export interface AuthResponse {
-  userId: string;
-  address: string;
-  clientName?: string;
-  message: string;
+	userId: string;
+	address: string;
+	clientName?: string;
+	message: string;
 }
 
 export interface SiweVerifyRequest {
-  message: string;
-  signature: string;
+	message: string;
+	signature: string;
 }
 
 export class CartelDBClient {
-  constructor(
-    private baseUrl: string,
-    private apiKey?: string,
-  ) {}
+	constructor(
+		private baseUrl: string,
+		private apiKey?: string,
+	) {}
 
-  // Authentication Methods
+	// Authentication Methods
 
-  /**
-   * Verify SIWE signature and authenticate
-   * Client should generate SIWE message and get signature from wallet
-   * @param message - The complete SIWE message that was signed
-   * @param signature - The signature from the wallet
-   * @returns Authentication response with user info
-   */
-  async verifySiwe(message: string, signature: string): Promise<AuthResponse> {
-    return this.request<AuthResponse>("/api/auth/verify", {
-      method: "POST",
-      body: JSON.stringify({ message, signature }),
-    });
-  }
+	/**
+	 * Verify SIWE signature and authenticate
+	 * Client should generate SIWE message and get signature from wallet
+	 * @param message - The complete SIWE message that was signed
+	 * @param signature - The signature from the wallet
+	 * @returns Authentication response with user info
+	 */
+	async verifySiwe(message: string, signature: string): Promise<AuthResponse> {
+		return this.request<AuthResponse>("/api/auth/verify", {
+			method: "POST",
+			body: JSON.stringify({ message, signature }),
+		});
+	}
 
-  /**
-   * Get current authenticated user info
-   * Requires user to be authenticated (cookie will be sent automatically)
-   */
-  async getCurrentUser() {
-    return this.request("/api/auth/me");
-  }
-  
-  /**
-   * Logout and clear authentication cookie
-   */
-  async logout() {
-    return this.request("/api/auth/logout", {
-      method: "POST",
-    });
-  }
+	/**
+	 * Get current authenticated user info
+	 * Requires user to be authenticated (cookie will be sent automatically)
+	 */
+	async getCurrentUser() {
+		return this.request("/api/auth/me");
+	}
 
-  private async request<T = any>(path: string, options: RequestInit = {}): Promise<T> {
-    const headers: any = {
-      "Content-Type": "application/json",
-      ...options.headers,
-    };
+	/**
+	 * Logout and clear authentication cookie
+	 */
+	async logout() {
+		return this.request("/api/auth/logout", {
+			method: "POST",
+		});
+	}
 
-    // Include API key if provided
-    if (this.apiKey) {
-      headers["X-API-Key"] = this.apiKey;
-    }
+	private async request<T = any>(
+		path: string,
+		options: RequestInit = {},
+	): Promise<T> {
+		const headers: any = {
+			"Content-Type": "application/json",
+			...options.headers,
+		};
 
-    const response = await fetch(`${this.baseUrl}${path}`, {
-      ...options,
-      headers,
-      credentials: "include", // Include cookies for authentication
-    });
+		// Include API key if provided
+		if (this.apiKey) {
+			headers["X-API-Key"] = this.apiKey;
+		}
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`API Error (${response.status}): ${error}`);
-    }
+		const response = await fetch(`${this.baseUrl}${path}`, {
+			...options,
+			headers,
+			credentials: "include", // Include cookies for authentication
+		});
 
-    return response.json() as Promise<T>;
-  }
+		if (!response.ok) {
+			const error = await response.text();
+			throw new Error(`API Error (${response.status}): ${error}`);
+		}
 
-  // Vanishing Channels - Discord
-  async setVanishingChannel(channelId: string, guildId: string, duration: number) {
-    return this.request("/api/discord/vanish", {
-      method: "POST",
-      body: JSON.stringify({ channelId, guildId, duration }),
-    });
-  }
+		return response.json() as Promise<T>;
+	}
 
-  async removeVanishingChannel(channelId: string) {
-    return this.request(`/api/discord/vanish/${channelId}`, {
-      method: "DELETE",
-    });
-  }
+	// Vanishing Channels - Discord
+	async setVanishingChannel(
+		channelId: string,
+		guildId: string,
+		duration: number,
+	) {
+		return this.request("/api/discord/vanish", {
+			method: "POST",
+			body: JSON.stringify({ channelId, guildId, duration }),
+		});
+	}
 
-  async getVanishingChannels(guildId?: string) {
-    const query = guildId ? `?guildId=${guildId}` : "";
-    return this.request(`/api/discord/vanish${query}`);
-  }
+	async removeVanishingChannel(channelId: string) {
+		return this.request(`/api/discord/vanish/${channelId}`, {
+			method: "DELETE",
+		});
+	}
 
-  async getVanishingChannel(channelId: string) {
-    return this.request(`/api/discord/vanish/${channelId}`);
-  }
+	async getVanishingChannels(guildId?: string) {
+		const query = guildId ? `?guildId=${guildId}` : "";
+		return this.request(`/api/discord/vanish${query}`);
+	}
 
-  async updateVanishingChannelStats(channelId: string, deletedCount: number) {
-    return this.request(`/api/discord/vanish/${channelId}/stats`, {
-      method: "PATCH",
-      body: JSON.stringify({ deletedCount }),
-    });
-  }
+	async getVanishingChannel(channelId: string) {
+		return this.request(`/api/discord/vanish/${channelId}`);
+	}
 
-  // Channel Settings - Discord
-  async setChannel(guildId: string, key: string, channelId: string) {
-    return this.request(`/api/discord/channels/${guildId}/${key}`, {
-      method: "PUT",
-      body: JSON.stringify({ channelId }),
-    });
-  }
+	async updateVanishingChannelStats(channelId: string, deletedCount: number) {
+		return this.request(`/api/discord/vanish/${channelId}/stats`, {
+			method: "PATCH",
+			body: JSON.stringify({ deletedCount }),
+		});
+	}
 
-  async getChannel(guildId: string, key: string) {
-    return this.request(`/api/discord/channels/${guildId}/${key}`);
-  }
+	// Channel Settings - Discord
+	async setChannel(guildId: string, key: string, channelId: string) {
+		return this.request(`/api/discord/channels/${guildId}/${key}`, {
+			method: "PUT",
+			body: JSON.stringify({ channelId }),
+		});
+	}
 
-  async getGuildChannels(guildId: string) {
-    return this.request(`/api/discord/channels/${guildId}`);
-  }
+	async getChannel(guildId: string, key: string) {
+		return this.request(`/api/discord/channels/${guildId}/${key}`);
+	}
 
-  async deleteChannel(guildId: string, key: string) {
-    return this.request(`/api/discord/channels/${guildId}/${key}`, {
-      method: "DELETE",
-    });
-  }
+	async getGuildChannels(guildId: string) {
+		return this.request(`/api/discord/channels/${guildId}`);
+	}
 
-  async deleteGuildChannels(guildId: string) {
-    return this.request(`/api/discord/channels/${guildId}`, {
-      method: "DELETE",
-    });
-  }
+	async deleteChannel(guildId: string, key: string) {
+		return this.request(`/api/discord/channels/${guildId}/${key}`, {
+			method: "DELETE",
+		});
+	}
 
-  // Practice Sessions
-  async startSession(params: {
-    discordId?: string;
-    userId?: string;
-    notes?: string;
-  }) {
-    if (!params.discordId && !params.userId) {
-      throw new Error("Either discordId or userId must be provided");
-    }
-    
-    return this.request("/api/sessions/practice/start", {
-      method: "POST",
-      body: JSON.stringify(params),
-    });
-  }
+	async deleteGuildChannels(guildId: string) {
+		return this.request(`/api/discord/channels/${guildId}`, {
+			method: "DELETE",
+		});
+	}
 
-  async stopSession(params: {
-    discordId?: string;
-    userId?: string;
-  }) {
-    if (!params.discordId && !params.userId) {
-      throw new Error("Either discordId or userId must be provided");
-    }
-    
-    return this.request("/api/sessions/practice/stop", {
-      method: "POST",
-      body: JSON.stringify(params),
-    });
-  }
+	// Practice Sessions
+	async startSession(params: {
+		discordId?: string;
+		userId?: string;
+		notes?: string;
+	}) {
+		if (!params.discordId && !params.userId) {
+			throw new Error("Either discordId or userId must be provided");
+		}
 
-  // Discord-based stats
-  async getDailyStats(discordId: string) {
-    const response = await this.request<{ totalDuration: number }>(
-      `/api/sessions/practice/stats/daily/discord/${discordId}`,
-    );
-    return response.totalDuration;
-  }
+		return this.request("/api/sessions/practice/start", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
+	}
 
-  async getWeeklyStats(discordId: string) {
-    return this.request<Record<string, number>>(
-      `/api/sessions/practice/stats/weekly/discord/${discordId}`,
-    );
-  }
+	async stopSession(params: { discordId?: string; userId?: string }) {
+		if (!params.discordId && !params.userId) {
+			throw new Error("Either discordId or userId must be provided");
+		}
 
-  async getMonthlyStats(discordId: string) {
-    return this.request<Record<string, number>>(
-      `/api/sessions/practice/stats/monthly/discord/${discordId}`,
-    );
-  }
+		return this.request("/api/sessions/practice/stop", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
+	}
 
-  // User UUID-based stats
-  async getDailyStatsByUserId(userId: string) {
-    const response = await this.request<{ totalDuration: number }>(
-      `/api/sessions/practice/stats/daily/user/${userId}`,
-    );
-    return response.totalDuration;
-  }
+	// Discord-based stats
+	async getDailyStats(discordId: string) {
+		const response = await this.request<{ totalDuration: number }>(
+			`/api/sessions/practice/stats/daily/discord/${discordId}`,
+		);
+		return response.totalDuration;
+	}
 
-  async getWeeklyStatsByUserId(userId: string) {
-    return this.request<Record<string, number>>(
-      `/api/sessions/practice/stats/weekly/user/${userId}`,
-    );
-  }
+	async getWeeklyStats(discordId: string) {
+		return this.request<Record<string, number>>(
+			`/api/sessions/practice/stats/weekly/discord/${discordId}`,
+		);
+	}
 
-  async getMonthlyStatsByUserId(userId: string) {
-    return this.request<Record<string, number>>(
-      `/api/sessions/practice/stats/monthly/user/${userId}`,
-    );
-  }
+	async getMonthlyStats(discordId: string) {
+		return this.request<Record<string, number>>(
+			`/api/sessions/practice/stats/monthly/discord/${discordId}`,
+		);
+	}
 
-  async getTopUsers() {
-    return this.request<Array<{ identity: string; totalDuration: number }>>(
-      "/api/sessions/practice/leaderboard",
-    );
-  }
+	// User UUID-based stats
+	async getDailyStatsByUserId(userId: string) {
+		const response = await this.request<{ totalDuration: number }>(
+			`/api/sessions/practice/stats/daily/user/${userId}`,
+		);
+		return response.totalDuration;
+	}
 
-  async getTotalTrackedHours() {
-    const response = await this.request<{ totalHours: number }>(
-      "/api/sessions/practice/total-hours",
-    );
-    return response.totalHours;
-  }
+	async getWeeklyStatsByUserId(userId: string) {
+		return this.request<Record<string, number>>(
+			`/api/sessions/practice/stats/weekly/user/${userId}`,
+		);
+	}
 
-  // Applications
-  async createApplication(data: {
-    messageId: string;
-    walletAddress: string;
-    ensName?: string | null;
-    github?: string | null;
-    farcaster?: string | null;
-    lens?: string | null;
-    twitter?: string | null;
-    excitement: string;
-    motivation: string;
-    signature: string;
-  }) {
-    return this.request<{ id: string; applicationNumber: number }>(
-      "/api/users/applications",
-      {
-        method: "POST",
-        body: JSON.stringify(data),
-      },
-    );
-  }
+	async getMonthlyStatsByUserId(userId: string) {
+		return this.request<Record<string, number>>(
+			`/api/sessions/practice/stats/monthly/user/${userId}`,
+		);
+	}
 
-  async getPendingApplications() {
-    return this.request("/api/users/applications/pending");
-  }
+	async getTopUsers() {
+		return this.request<Array<{ identity: string; totalDuration: number }>>(
+			"/api/sessions/practice/leaderboard",
+		);
+	}
 
-  async getApplicationByMessageId(messageId: string) {
-    return this.request(`/api/users/applications/by-message/${messageId}`);
-  }
+	async getTotalTrackedHours() {
+		const response = await this.request<{ totalHours: number }>(
+			"/api/sessions/practice/total-hours",
+		);
+		return response.totalHours;
+	}
 
-  async getApplicationByNumber(applicationNumber: number) {
-    return this.request(`/api/users/applications/by-number/${applicationNumber}`);
-  }
+	// Applications
+	async createApplication(data: {
+		messageId: string;
+		walletAddress: string;
+		ensName?: string | null;
+		github?: string | null;
+		farcaster?: string | null;
+		lens?: string | null;
+		twitter?: string | null;
+		excitement: string;
+		motivation: string;
+		signature: string;
+	}) {
+		return this.request<{ id: string; applicationNumber: number }>(
+			"/api/users/applications",
+			{
+				method: "POST",
+				body: JSON.stringify(data),
+			},
+		);
+	}
 
-  async updateApplicationStatus(
-    applicationId: string,
-    status: "approved" | "rejected",
-  ) {
-    return this.request(`/api/users/applications/${applicationId}/status`, {
-      method: "PATCH",
-      body: JSON.stringify({ status }),
-    });
-  }
+	async getPendingApplications() {
+		return this.request("/api/users/applications/pending");
+	}
 
-  async deleteApplication(applicationId: string) {
-    return this.request(`/api/users/applications/${applicationId}`, {
-      method: "DELETE",
-    });
-  }
+	async getApplicationByMessageId(messageId: string) {
+		return this.request(`/api/users/applications/by-message/${messageId}`);
+	}
 
-  async addVote(
-    applicationId: string,
-    userId: string,
-    userName: string,
-    voteType: "approve" | "reject",
-  ) {
-    return this.request(`/api/users/applications/${applicationId}/votes`, {
-      method: "POST",
-      body: JSON.stringify({ userId, userName, voteType }),
-    });
-  }
+	async getApplicationByNumber(applicationNumber: number) {
+		return this.request(
+			`/api/users/applications/by-number/${applicationNumber}`,
+		);
+	}
 
-  async getVotes(applicationId: string) {
-    return this.request(`/api/users/applications/${applicationId}/votes`);
-  }
+	async updateApplicationStatus(
+		applicationId: string,
+		status: "approved" | "rejected",
+	) {
+		return this.request(`/api/users/applications/${applicationId}/status`, {
+			method: "PATCH",
+			body: JSON.stringify({ status }),
+		});
+	}
 
-  // User Identities
-  
-  async getUser(identity: UserIdentityLookup) {
-    if (identity.evm) {
-      return this.getUserByEvm(identity.evm);
-    } else if (identity.lens) {
-      return this.getUserByLens(identity.lens);
-    } else if (identity.farcaster) {
-      return this.getUserByFarcaster(identity.farcaster);
-    } else if (identity.telegram) {
-      return this.getUserByTelegram(identity.telegram);
-    } else if (identity.discord) {
-      return this.getUserByDiscord(identity.discord);
-    } else {
-      throw new Error("At least one identity type must be provided");
-    }
-  }
+	async deleteApplication(applicationId: string) {
+		return this.request(`/api/users/applications/${applicationId}`, {
+			method: "DELETE",
+		});
+	}
 
-  // Individual methods for backward compatibility and direct access
-  async getUserByEvm(address: string) {
-    return this.request(`/api/users/id/by-evm/${address}`);
-  }
+	async addVote(
+		applicationId: string,
+		userId: string,
+		userName: string,
+		voteType: "approve" | "reject",
+	) {
+		return this.request(`/api/users/applications/${applicationId}/votes`, {
+			method: "POST",
+			body: JSON.stringify({ userId, userName, voteType }),
+		});
+	}
 
-  async getUserByLens(address: string) {
-    return this.request(`/api/users/id/by-lens/${address}`);
-  }
+	async getVotes(applicationId: string) {
+		return this.request(`/api/users/applications/${applicationId}/votes`);
+	}
 
-  async getUserByFarcaster(fid: string) {
-    return this.request(`/api/users/id/by-farcaster/${fid}`);
-  }
+	// User Identities
 
-  async getUserByTelegram(telegramId: string) {
-    return this.request(`/api/users/id/by-telegram/${telegramId}`);
-  }
+	async getUser(identity: UserIdentityLookup) {
+		if (identity.evm) {
+			return this.getUserByEvm(identity.evm);
+		} else if (identity.lens) {
+			return this.getUserByLens(identity.lens);
+		} else if (identity.farcaster) {
+			return this.getUserByFarcaster(identity.farcaster);
+		} else if (identity.telegram) {
+			return this.getUserByTelegram(identity.telegram);
+		} else if (identity.discord) {
+			return this.getUserByDiscord(identity.discord);
+		} else {
+			throw new Error("At least one identity type must be provided");
+		}
+	}
 
-  async getUserByDiscord(discordId: string) {
-    return this.request(`/api/users/id/by-discord/${discordId}`);
-  }
+	// Individual methods for backward compatibility and direct access
+	async getUserByEvm(address: string) {
+		return this.request(`/api/users/id/by-evm/${address}`);
+	}
 
-  async getUserIdentities(userId: string) {
-    return this.request(`/api/users/identities/${userId}`);
-  }
+	async getUserByLens(address: string) {
+		return this.request(`/api/users/id/by-lens/${address}`);
+	}
 
-  async createUserIdentity(data: {
-    platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
-    identity: string;
-    isPrimary?: boolean;
-  }) {
-    return this.request("/api/users/id", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  }
+	async getUserByFarcaster(fid: string) {
+		return this.request(`/api/users/id/by-farcaster/${fid}`);
+	}
 
-  // Admin: Identity Management
-  async connectIdentity(data: {
-    userId: string;
-    platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
-    identity: string;
-    isPrimary?: boolean;
-  }) {
-    return this.request("/api/admin/identities/connect", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  }
+	async getUserByTelegram(telegramId: string) {
+		return this.request(`/api/users/id/by-telegram/${telegramId}`);
+	}
 
-  async disconnectIdentity(data: {
-    platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
-    identity: string;
-  }) {
-    return this.request("/api/admin/identities/disconnect", {
-      method: "DELETE",
-      body: JSON.stringify(data),
-    });
-  }
+	async getUserByDiscord(discordId: string) {
+		return this.request(`/api/users/id/by-discord/${discordId}`);
+	}
 
-  async setPrimaryIdentity(data: {
-    platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
-    identity: string;
-  }) {
-    return this.request("/api/admin/identities/set-primary", {
-      method: "PUT",
-      body: JSON.stringify(data),
-    });
-  }
+	async getUserIdentities(userId: string) {
+		return this.request(`/api/users/identities/${userId}`);
+	}
 
-  async mergeUsers(sourceUserId: string, targetUserId: string) {
-    return this.request("/api/admin/identities/merge-users", {
-      method: "POST",
-      body: JSON.stringify({ sourceUserId, targetUserId }),
-    });
-  }
+	async createUserIdentity(data: {
+		platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
+		identity: string;
+		isPrimary?: boolean;
+	}) {
+		return this.request("/api/users/id", {
+			method: "POST",
+			body: JSON.stringify(data),
+		});
+	}
 
-  // Projects
-  async getProjects(params?: {
-    search?: string;
-    tags?: string;
-    userId?: string;
-    public?: "true" | "false" | "all";
-    limit?: number;
-    offset?: number;
-  }) {
-    const query = params ? `?${new URLSearchParams(params as any).toString()}` : "";
-    return this.request(`/api/projects${query}`);
-  }
+	// Admin: Identity Management
+	async connectIdentity(data: {
+		userId: string;
+		platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
+		identity: string;
+		isPrimary?: boolean;
+	}) {
+		return this.request("/api/admin/identities/connect", {
+			method: "POST",
+			body: JSON.stringify(data),
+		});
+	}
 
-  async getProject(projectId: string) {
-    return this.request(`/api/projects/${projectId}`);
-  }
+	async disconnectIdentity(data: {
+		platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
+		identity: string;
+	}) {
+		return this.request("/api/admin/identities/disconnect", {
+			method: "DELETE",
+			body: JSON.stringify(data),
+		});
+	}
 
-  async getUserProjects(userId: string) {
-    return this.request(`/api/projects/user/${userId}`);
-  }
+	async setPrimaryIdentity(data: {
+		platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
+		identity: string;
+	}) {
+		return this.request("/api/admin/identities/set-primary", {
+			method: "PUT",
+			body: JSON.stringify(data),
+		});
+	}
 
-  async createProject(data: {
-    title: string;
-    description: string;
-    githubUrl?: string | null;
-    deploymentUrl?: string | null;
-    tags?: string[];
-    isPublic?: boolean;
-  }) {
-    return this.request("/api/projects", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
-  }
+	async mergeUsers(sourceUserId: string, targetUserId: string) {
+		return this.request("/api/admin/identities/merge-users", {
+			method: "POST",
+			body: JSON.stringify({ sourceUserId, targetUserId }),
+		});
+	}
 
-  async updateProject(
-    projectId: string,
-    data: {
-      title?: string;
-      description?: string;
-      githubUrl?: string | null;
-      deploymentUrl?: string | null;
-      tags?: string[];
-      isPublic?: boolean;
-    }
-  ) {
-    return this.request(`/api/projects/${projectId}`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    });
-  }
+	// Projects
+	async getProjects(params?: {
+		search?: string;
+		tags?: string;
+		userId?: string;
+		public?: "true" | "false" | "all";
+		limit?: number;
+		offset?: number;
+	}) {
+		const query = params
+			? `?${new URLSearchParams(params as any).toString()}`
+			: "";
+		return this.request(`/api/projects${query}`);
+	}
 
-  async deleteProject(projectId: string) {
-    return this.request(`/api/projects/${projectId}`, {
-      method: "DELETE",
-    });
-  }
+	async getProject(projectId: string) {
+		return this.request(`/api/projects/${projectId}`);
+	}
 
-  async getPopularProjectTags() {
-    return this.request("/api/projects/tags/popular");
-  }
+	async getUserProjects(userId: string) {
+		return this.request(`/api/projects/user/${userId}`);
+	}
+
+	async createProject(data: {
+		title: string;
+		description: string;
+		githubUrl?: string | null;
+		deploymentUrl?: string | null;
+		tags?: string[];
+		isPublic?: boolean;
+	}) {
+		return this.request("/api/projects", {
+			method: "POST",
+			body: JSON.stringify(data),
+		});
+	}
+
+	async updateProject(
+		projectId: string,
+		data: {
+			title?: string;
+			description?: string;
+			githubUrl?: string | null;
+			deploymentUrl?: string | null;
+			tags?: string[];
+			isPublic?: boolean;
+		},
+	) {
+		return this.request(`/api/projects/${projectId}`, {
+			method: "PATCH",
+			body: JSON.stringify(data),
+		});
+	}
+
+	async deleteProject(projectId: string) {
+		return this.request(`/api/projects/${projectId}`, {
+			method: "DELETE",
+		});
+	}
+
+	async getPopularProjectTags() {
+		return this.request("/api/projects/tags/popular");
+	}
 }

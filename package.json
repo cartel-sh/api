@@ -28,14 +28,15 @@
     }
   },
   "scripts": {
+    "format": "bunx biome format --write",
     "build": "tsup",
     "server": "bun run src/server/index.ts",
     "dev": "bun --watch src/server/index.ts",
     "typecheck": "tsc --noEmit",
-    "generate": "drizzle-kit generate",
-    "migrate": "drizzle-kit migrate",
-    "push": "drizzle-kit push",
-    "studio": "drizzle-kit studio",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
@@ -57,6 +58,7 @@
     "zod": "^4.1.1"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.2.2",
     "@types/bun": "^1.1.14",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^22.10.2",

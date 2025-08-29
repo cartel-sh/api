@@ -22,35 +22,38 @@ config();
 
 const app = new OpenAPIHono();
 
-app.use("*", cors({
-  credentials: true,
-  origin: (origin) => {
-    const allowedOrigins = [
-      "http://localhost:3000",
-      "http://localhost:3001", 
-      "http://localhost:3003", 
-      "https://cartel.sh",
-      "https://www.cartel.sh",
-    ];
-    
-    if (!origin) return "*";
-    
-    if (allowedOrigins.includes(origin)) {
-      return origin;
-    }
-    
-    for (const allowed of allowedOrigins) {
-      if (allowed.startsWith("*.")) {
-        const domain = allowed.slice(2);
-        if (origin.endsWith(domain)) {
-          return origin;
-        }
-      }
-    }
-    
-    return null;
-  },
-}))
+app.use(
+	"*",
+	cors({
+		credentials: true,
+		origin: (origin) => {
+			const allowedOrigins = [
+				"http://localhost:3000",
+				"http://localhost:3001",
+				"http://localhost:3003",
+				"https://cartel.sh",
+				"https://www.cartel.sh",
+			];
+
+			if (!origin) return "*";
+
+			if (allowedOrigins.includes(origin)) {
+				return origin;
+			}
+
+			for (const allowed of allowedOrigins) {
+				if (allowed.startsWith("*.")) {
+					const domain = allowed.slice(2);
+					if (origin.endsWith(domain)) {
+						return origin;
+					}
+				}
+			}
+
+			return null;
+		},
+	}),
+);
 app.use("*", logger());
 app.use("/api/*", optionalApiKey);
 
@@ -65,72 +68,77 @@ app.route("/api/admin/identities", adminIdentities);
 app.route("/api/projects", projects);
 app.route("/api/auth", auth);
 
-app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
+app.get("/health", (c) =>
+	c.json({ status: "ok", timestamp: new Date().toISOString() }),
+);
 
 const port = Number(process.env.PORT || Bun.env?.PORT) || 3003;
 
 app.doc("/openapi.json", {
-  openapi: "3.1.0",
-  info: {
-    title: "Cartel API",
-    version: packageJson.version,
-    description: "Shared REST API for Cartel",
-  },
-  servers: [
-    {
-      url: process.env.API_URL || `http://localhost:${port}`,
-      description: "API Server",
-    },
-  ],
+	openapi: "3.1.0",
+	info: {
+		title: "Cartel API",
+		version: packageJson.version,
+		description: "Shared REST API for Cartel",
+	},
+	servers: [
+		{
+			url: process.env.API_URL || `http://localhost:${port}`,
+			description: "API Server",
+		},
+	],
 });
 
-app.get('/llms.txt', async (c) => {
-  const content = app.getOpenAPI31Document({
-    openapi: '3.1.0',
-    info: { title: 'Cartel API', version: packageJson.version },
-  });
-  
-  const markdown = await createMarkdownFromOpenApi(
-    JSON.stringify(content)
-  );
-  
-  return c.text(markdown);
-})
+app.get("/llms.txt", async (c) => {
+	const content = app.getOpenAPI31Document({
+		openapi: "3.1.0",
+		info: { title: "Cartel API", version: packageJson.version },
+	});
 
-app.get("/docs", Scalar({
-  pageTitle: "Cartel API",
-  url: "/openapi.json",
-}));
+	const markdown = await createMarkdownFromOpenApi(JSON.stringify(content));
 
-app.get("/", (c) => c.json({
-  name: "@cartel-sh/api",
-  version: packageJson.version,
-  documentation: "/docs",
-  openapi: "/openapi.json",
-  endpoints: [
-    "/api/discord/vanish",
-    "/api/discord/channels",
-    "/api/sessions/practice",
-    "/api/users/applications",
-    "/api/users/id",
-    "/api/users/identities",
-    "/api/admin/keys",
-    "/api/admin/identities",
-    "/api/projects",
-    "/api/auth"
-  ]
-}));
+	return c.text(markdown);
+});
+
+app.get(
+	"/docs",
+	Scalar({
+		pageTitle: "Cartel API",
+		url: "/openapi.json",
+	}),
+);
+
+app.get("/", (c) =>
+	c.json({
+		name: "@cartel-sh/api",
+		version: packageJson.version,
+		documentation: "/docs",
+		openapi: "/openapi.json",
+		endpoints: [
+			"/api/discord/vanish",
+			"/api/discord/channels",
+			"/api/sessions/practice",
+			"/api/users/applications",
+			"/api/users/id",
+			"/api/users/identities",
+			"/api/admin/keys",
+			"/api/admin/identities",
+			"/api/projects",
+			"/api/auth",
+		],
+	}),
+);
 
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 
 app.onError((err, c) => {
-  console.error(`Error: ${err}`);
-  return c.json({ error: "Internal server error" }, 500);
+	console.error(`Error: ${err}`);
+	return c.json({ error: "Internal server error" }, 500);
 });
 
 console.log(`Documentation is available at http://localhost:${port}/docs`);
 
 export default {
-  port,
-  fetch: app.fetch,
+	port,
+	fetch: app.fetch,
 };
