@@ -26,9 +26,10 @@ app.use("*", cors({
   origin: (origin) => {
     // In production, validate against allowed origins from database
     // For now, allow configured origins
-    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
+    const allowedOrigins = [
       "http://localhost:3000",
       "http://localhost:3001", 
+      "http://localhost:3003", 
       "https://cartel.sh",
       "https://www.cartel.sh",
     ];
@@ -80,7 +81,7 @@ app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOStri
 
 // Root route
 app.get("/", (c) => c.json({
-  name: "@cartel-sh/db API",
+  name: "@cartel-sh/api",
   version: packageJson.version,
   endpoints: [
     "/api/discord/vanish",

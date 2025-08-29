@@ -57,17 +57,6 @@ export class CartelDBClient {
     });
   }
 
-  /**
-   * Legacy: Get nonce for SIWE (server-generated nonce)
-   * @deprecated Use client-generated nonces instead
-   */
-  async getNonce(address: string): Promise<{ nonce: string }> {
-    return this.request("/api/auth/nonce", {
-      method: "POST",
-      body: JSON.stringify({ address }),
-    });
-  }
-
   private async request<T = any>(path: string, options: RequestInit = {}): Promise<T> {
     const headers: any = {
       "Content-Type": "application/json",
@@ -455,13 +444,4 @@ export class CartelDBClient {
   async getPopularProjectTags() {
     return this.request("/api/projects/tags/popular");
   }
-
-  // Authentication (SIWE)
-  async requestNonce(address: string) {
-    return this.request("/api/auth/nonce", {
-      method: "POST",
-      body: JSON.stringify({ address }),
-    });
-  }
-
 }

@@ -22,44 +22,7 @@ const app = new Hono<{ Variables: Variables }>();
 const JWT_SECRET = process.env.JWT_SECRET || Bun.env.JWT_SECRET || "development-secret-key-change-this-in-production-minimum-32-chars";
 const JWT_EXPIRY = "7d";
 
-// In-memory nonce storage per client (consider Redis for production)
-// Key format: `${clientId}:${address}` or just `${address}` for legacy
-const nonceStore = new Map<string, { nonce: string; expires: number; clientId?: string }>();
-
-// Clean expired nonces periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, data] of nonceStore.entries()) {
-    if (data.expires < now) {
-      nonceStore.delete(key);
-    }
-  }
-}, 60 * 1000); // Every minute
-
-// Generate nonce for SIWE (legacy endpoint - kept for backwards compatibility)
-app.post(
-  "/nonce",
-  zValidator(
-    "json",
-    z.object({
-      address: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
-    })
-  ),
-  async (c) => {
-    const { address } = c.req.valid("json");
-    const nonce = generateNonce();
-    
-    // Store nonce with 5 minute expiry (legacy format)
-    nonceStore.set(address.toLowerCase(), {
-      nonce,
-      expires: Date.now() + 5 * 60 * 1000,
-    });
-    
-    return c.json({ nonce });
-  }
-);
-
-// Verify SIWE signature and create session
+// Verify SIWE signature and create session (requires API key)
 app.post(
   "/verify",
   zValidator(
@@ -73,55 +36,50 @@ app.post(
     const { message, signature } = c.req.valid("json");
     const apiKey = c.req.header("X-API-Key");
     
+    // API key is required
+    if (!apiKey) {
+      return c.json({ error: "API key required" }, 401);
+    }
+    
     try {
       const siweMessage = new SiweMessage(message);
-      let allowedOrigins: string[] = [];
-      let clientId: string | undefined;
-      let clientName: string | undefined;
       
-      // If API key provided, validate and get client configuration
-      if (apiKey) {
-        // Validate API key format
-        if (!isValidApiKeyFormat(apiKey)) {
-          return c.json({ error: "Invalid API key format" }, 401);
-        }
-        
-        // Get API key from database
-        const keyPrefix = getApiKeyPrefix(apiKey);
-        const keyHash = hashApiKey(apiKey);
-        const now = new Date();
-        
-        const apiKeyData = await db.query.apiKeys.findFirst({
-          where: and(
-            eq(apiKeys.keyPrefix, keyPrefix),
-            eq(apiKeys.keyHash, keyHash),
-            eq(apiKeys.isActive, true),
-            or(
-              isNull(apiKeys.expiresAt),
-              gte(apiKeys.expiresAt, now)
-            )
-          ),
-        });
-        
-        if (!apiKeyData) {
-          return c.json({ error: "Invalid API key" }, 401);
-        }
-        
-        clientId = apiKeyData.id;
-        clientName = apiKeyData.clientName || undefined;
-        allowedOrigins = apiKeyData.allowedOrigins || [];
-        
-        // Update last used timestamp
-        db.update(apiKeys)
-          .set({ lastUsedAt: now })
-          .where(eq(apiKeys.id, apiKeyData.id))
-          .execute()
-          .catch(console.error);
-      } else {
-        // Legacy flow - use environment domain
-        const domain = process.env.SIWE_DOMAIN || Bun.env.SIWE_DOMAIN || "localhost:3003";
-        allowedOrigins = [domain];
+      // Validate API key format
+      if (!isValidApiKeyFormat(apiKey)) {
+        return c.json({ error: "Invalid API key format" }, 401);
       }
+      
+      // Get API key from database
+      const keyPrefix = getApiKeyPrefix(apiKey);
+      const keyHash = hashApiKey(apiKey);
+      const now = new Date();
+      
+      const apiKeyData = await db.query.apiKeys.findFirst({
+        where: and(
+          eq(apiKeys.keyPrefix, keyPrefix),
+          eq(apiKeys.keyHash, keyHash),
+          eq(apiKeys.isActive, true),
+          or(
+            isNull(apiKeys.expiresAt),
+            gte(apiKeys.expiresAt, now)
+          )
+        ),
+      });
+      
+      if (!apiKeyData) {
+        return c.json({ error: "Invalid API key" }, 401);
+      }
+      
+      const clientId = apiKeyData.id;
+      const clientName = apiKeyData.clientName || undefined;
+      const allowedOrigins = apiKeyData.allowedOrigins || [];
+      
+      // Update last used timestamp
+      db.update(apiKeys)
+        .set({ lastUsedAt: now })
+        .where(eq(apiKeys.id, apiKeyData.id))
+        .execute()
+        .catch(console.error);
       
       // Verify domain/URI against allowed origins
       if (allowedOrigins.length > 0) {
@@ -147,7 +105,6 @@ app.post(
       }
       
       // Verify timestamp (not expired, not too far in future)
-      const now = new Date();
       if (siweMessage.expirationTime) {
         const expiry = new Date(siweMessage.expirationTime);
         if (expiry < now) {
@@ -161,37 +118,11 @@ app.post(
         }
       }
       
-      // For client-generated nonces, we just verify freshness
-      // Clients should generate unique nonces (e.g., UUID or timestamp-based)
-      // We can optionally store and check for replay attacks
-      const nonceKey = clientId ? `${clientId}:${siweMessage.address.toLowerCase()}` : siweMessage.address.toLowerCase();
-      const storedNonce = nonceStore.get(nonceKey);
-      
-      // If we have a stored nonce (legacy flow), verify it
-      if (storedNonce) {
-        if (storedNonce.nonce !== siweMessage.nonce) {
-          return c.json({ error: "Invalid nonce" }, 400);
-        }
-        if (storedNonce.expires < Date.now()) {
-          nonceStore.delete(nonceKey);
-          return c.json({ error: "Nonce expired" }, 400);
-        }
-      } else if (!clientId) {
-        // Legacy flow requires stored nonce
-        return c.json({ error: "Invalid or missing nonce" }, 400);
-      }
-      // For client-generated nonces, we trust the client to generate unique values
-      
       // Verify signature
       const result = await siweMessage.verify({ signature });
       
       if (!result.success) {
         return c.json({ error: "Invalid signature" }, 401);
-      }
-      
-      // Remove used nonce if stored
-      if (storedNonce) {
-        nonceStore.delete(nonceKey);
       }
       
       // Find or create user
@@ -233,8 +164,8 @@ app.post(
         { 
           userId,
           address,
-          clientId: clientId || undefined,
-          clientName: clientName || undefined,
+          clientId,
+          clientName,
           iat: Math.floor(Date.now() / 1000),
         },
         JWT_SECRET,
@@ -242,7 +173,7 @@ app.post(
       );
       
       // Set JWT as httpOnly cookie
-      setCookie(c, "cartelToken", token, {
+      setCookie(c, "cartel-seal", token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "Lax",
@@ -266,7 +197,7 @@ app.post(
 // Get current user from JWT (cookie or header)
 app.get("/me", async (c) => {
   // Try cookie first, then Authorization header
-  const token = getCookie(c, "cartelToken") || 
+  const token = getCookie(c, "cartel-seal") || 
     (c.req.header("Authorization")?.startsWith("Bearer ") 
       ? c.req.header("Authorization")!.slice(7) 
       : null);
@@ -304,21 +235,11 @@ app.get("/me", async (c) => {
 
 // Logout endpoint - clear cookie
 app.post("/logout", (c) => {
-  deleteCookie(c, "cartelToken", {
+  deleteCookie(c, "cartel-seal", {
     path: "/",
   });
   
   return c.json({ message: "Logged out successfully" });
 });
-
-// Helper function to generate nonce
-function generateNonce(length = 16): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let nonce = "";
-  for (let i = 0; i < length; i++) {
-    nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return nonce;
-}
 
 export default app;
