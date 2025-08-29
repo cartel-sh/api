@@ -6,26 +6,66 @@ type UserIdentityLookup = {
   discord?: string;
 };
 
+export interface AuthResponse {
+  userId: string;
+  address: string;
+  clientName?: string;
+  message: string;
+}
+
+export interface SiweVerifyRequest {
+  message: string;
+  signature: string;
+}
+
 export class CartelDBClient {
-  private token?: string;
-  
   constructor(
     private baseUrl: string,
     private apiKey?: string,
   ) {}
 
+  // Authentication Methods
+
   /**
-   * Set JWT token for authenticated requests
+   * Verify SIWE signature and authenticate
+   * Client should generate SIWE message and get signature from wallet
+   * @param message - The complete SIWE message that was signed
+   * @param signature - The signature from the wallet
+   * @returns Authentication response with user info
    */
-  setAuthToken(token: string) {
-    this.token = token;
+  async verifySiwe(message: string, signature: string): Promise<AuthResponse> {
+    return this.request<AuthResponse>("/api/auth/verify", {
+      method: "POST",
+      body: JSON.stringify({ message, signature }),
+    });
   }
 
   /**
-   * Clear JWT token
+   * Get current authenticated user info
+   * Requires user to be authenticated (cookie will be sent automatically)
    */
-  clearAuthToken() {
-    this.token = undefined;
+  async getCurrentUser() {
+    return this.request("/api/auth/me");
+  }
+  
+  /**
+   * Logout and clear authentication cookie
+   */
+  async logout() {
+    return this.request("/api/auth/logout", {
+      method: "POST",
+    });
+  }
+
+  /**
+   * Legacy: Get nonce for SIWE (server-generated nonce)
+   * @deprecated Use client-generated nonces instead
+   */
+  async getNonce(address: string): Promise<{ nonce: string }> {
+    return this.request("/api/auth/nonce", {
+      method: "POST",
+      body: JSON.stringify({ address }),
+    });
   }
 
   private async request<T = any>(path: string, options: RequestInit = {}): Promise<T> {
@@ -39,14 +79,10 @@ export class CartelDBClient {
       headers["X-API-Key"] = this.apiKey;
     }
 
-    // Include JWT token if available
-    if (this.token) {
-      headers["Authorization"] = `Bearer ${this.token}`;
-    }
-
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...options,
       headers,
+      credentials: "include", // Include cookies for authentication
     });
 
     if (!response.ok) {
@@ -428,39 +464,4 @@ export class CartelDBClient {
     });
   }
 
-  /**
-   * Verify SIWE signature and get JWT token
-   * Automatically sets the token for future requests
-   */
-  async login(message: string, signature: string): Promise<{
-    token: string;
-    userId: string;
-    address: string;
-    message: string;
-  }> {
-    const result = await this.request("/api/auth/verify", {
-      method: "POST",
-      body: JSON.stringify({ message, signature }),
-    });
-    
-    // Automatically set the token for future requests
-    if (result.token) {
-      this.setAuthToken(result.token);
-    }
-    
-    return result;
-  }
-
-  async getCurrentUser() {
-    if (!this.token) {
-      throw new Error("Not authenticated. Please login first.");
-    }
-    return this.request("/api/auth/me");
-  }
-
-  logout() {
-    // Clear the JWT token
-    this.clearAuthToken();
-    return Promise.resolve({ message: "Logged out successfully" });
-  }
 }

@@ -1,4 +1,5 @@
 import type { Context, Next } from "hono";
+import { getCookie } from "hono/cookie";
 import { eq, and, or, isNull, gte } from "drizzle-orm";
 import { db, apiKeys } from "../../client";
 import { hashApiKey, getApiKeyPrefix, isValidApiKeyFormat } from "../utils/crypto";
@@ -232,17 +233,22 @@ const JWT_SECRET = process.env.JWT_SECRET || Bun.env.JWT_SECRET || "development-
  * Middleware to extract JWT token and set user context
  * Sets sessionUserId and userAddress in context if valid token present
  * Does not fail if no token - use for optional auth
+ * Checks cookie first, then Authorization header
  */
 export async function withJwtAuth(c: Context, next: Next) {
-  const authorization = c.req.header("Authorization");
+  // Try cookie first, then Authorization header
+  const token = getCookie(c, "cartelToken") || 
+    (c.req.header("Authorization")?.startsWith("Bearer ") 
+      ? c.req.header("Authorization")!.slice(7) 
+      : null);
   
-  if (authorization?.startsWith("Bearer ")) {
-    const token = authorization.slice(7);
-    
+  if (token) {
     try {
       const payload = jwt.verify(token, JWT_SECRET) as any;
       c.set("sessionUserId", payload.userId);
       c.set("userAddress", payload.address);
+      c.set("clientId", payload.clientId);
+      c.set("clientName", payload.clientName);
     } catch (error) {
       // Invalid token, continue without user auth
       console.debug("Invalid JWT token:", error);
@@ -255,23 +261,28 @@ export async function withJwtAuth(c: Context, next: Next) {
 /**
  * Middleware that requires a valid JWT token
  * Returns 401 if no valid token present
+ * Checks cookie first, then Authorization header
  */
 export async function requireJwtAuth(c: Context, next: Next) {
-  const authorization = c.req.header("Authorization");
+  // Try cookie first, then Authorization header
+  const token = getCookie(c, "cartelToken") || 
+    (c.req.header("Authorization")?.startsWith("Bearer ") 
+      ? c.req.header("Authorization")!.slice(7) 
+      : null);
   
-  if (!authorization?.startsWith("Bearer ")) {
+  if (!token) {
     return c.json({ 
       error: "Authentication required",
-      message: "Please provide a valid Bearer token"
+      message: "Please sign in to continue"
     }, 401);
   }
-  
-  const token = authorization.slice(7);
   
   try {
     const payload = jwt.verify(token, JWT_SECRET) as any;
     c.set("sessionUserId", payload.userId);
     c.set("userAddress", payload.address);
+    c.set("clientId", payload.clientId);
+    c.set("clientName", payload.clientName);
     await next();
   } catch (error) {
     return c.json({ 

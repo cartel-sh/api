@@ -21,7 +21,37 @@ config();
 const app = new Hono();
 
 // Middleware
-app.use("*", cors());
+app.use("*", cors({
+  credentials: true,
+  origin: (origin) => {
+    // In production, validate against allowed origins from database
+    // For now, allow configured origins
+    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
+      "http://localhost:3000",
+      "http://localhost:3001", 
+      "https://cartel.sh",
+      "https://www.cartel.sh",
+    ];
+    
+    if (!origin) return "*"; // Allow requests without origin (e.g., Postman)
+    
+    if (allowedOrigins.includes(origin)) {
+      return origin;
+    }
+    
+    // Check for wildcard subdomains
+    for (const allowed of allowedOrigins) {
+      if (allowed.startsWith("*.")) {
+        const domain = allowed.slice(2);
+        if (origin.endsWith(domain)) {
+          return origin;
+        }
+      }
+    }
+    
+    return null; // Deny if not in allowed list
+  },
+}));
 app.use("*", logger());
 
 // Use optional API key middleware for rate limiting (doesn't require API key)

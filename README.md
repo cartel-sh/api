@@ -85,12 +85,9 @@ The API uses JWT tokens for authentication with client-side SIWE (Sign-In with E
    - Domain/URI matches client's allowed origins
    - Signature is valid
    - Timestamps are valid
-5. **API returns JWT** for authenticated requests
+5. **API returns success** and sets httpOnly cookie for authentication
 
-Protected routes require the JWT:
-```
-Authorization: Bearer <jwt-token>
-```
+Authentication is handled via secure httpOnly cookies - no manual token management needed.
 
 ### API Keys (Required for SIWE verification)
 
@@ -217,8 +214,7 @@ const API_KEY = process.env.NEXT_PUBLIC_API_KEY!;
 const API_URL = process.env.NEXT_PUBLIC_API_URL!;
 
 export function useAuth() {
-  const [token, setToken] = useState<string | null>(null);
-  
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const signIn = async () => {
     const provider = new BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
@@ -242,6 +238,7 @@ export function useAuth() {
     // 2. Send to API with API key
     const verifyRes = await fetch(`${API_URL}/api/auth/verify`, {
       method: 'POST',
+      credentials: 'include', // Include cookies
       headers: {
         'X-API-Key': API_KEY,
         'Content-Type': 'application/json'
@@ -256,25 +253,30 @@ export function useAuth() {
       throw new Error('Authentication failed');
     }
     
-    const { token } = await verifyRes.json();
-    setToken(token);
-    localStorage.setItem('jwt', token);
-    return token;
+    const data = await verifyRes.json();
+    setIsAuthenticated(true);
+    return data;
   };
   
-  return { token, signIn };
+  const signOut = async () => {
+    await fetch(`${API_URL}/api/auth/logout`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    setIsAuthenticated(false);
+  };
+  
+  return { isAuthenticated, signIn, signOut };
 }
 ```
 
 3. **Make authenticated requests:**
 ```typescript
-const token = localStorage.getItem('jwt');
-
-// Create a project
-await fetch('/api/projects', {
+// Authentication cookie is sent automatically
+await fetch(`${API_URL}/api/projects`, {
   method: 'POST',
+  credentials: 'include', // Include cookies
   headers: {
-    'Authorization': `Bearer ${token}`,
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
@@ -282,80 +284,165 @@ await fetch('/api/projects', {
     description: 'Description here'
   })
 });
+
+// Get current user
+const userRes = await fetch(`${API_URL}/api/auth/me`, {
+  credentials: 'include'
+});
+const user = await userRes.json();
 ```
 
 ## Using the SDK
 
-### JavaScript/TypeScript Client
+### SDK Authentication with SIWE
+
+```typescript
+import { CartelDBClient } from '@cartel-sh/db/client';
+import { SiweMessage } from 'siwe';
+import { BrowserProvider } from 'ethers';
+
+// Initialize client with your API key
+const client = new CartelDBClient(
+  'https://api.cartel.sh',
+  'cartel_your-api-key-here' // Required for SIWE verification
+);
+
+// Authentication flow
+async function authenticate() {
+  // 1. Get wallet address
+  const provider = new BrowserProvider(window.ethereum);
+  const signer = await provider.getSigner();
+  const address = await signer.getAddress();
+  
+  // 2. Create SIWE message (client-side)
+  const message = new SiweMessage({
+    domain: window.location.host,
+    address,
+    statement: 'Sign in to MyApp',
+    uri: window.location.origin,
+    version: '1',
+    chainId: 1,
+    nonce: crypto.randomUUID(), // Client generates nonce
+    expirationTime: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+  });
+  
+  // 3. Sign message with wallet
+  const messageToSign = message.prepareMessage();
+  const signature = await signer.signMessage(messageToSign);
+  
+  // 4. Verify with Cartel API
+  const authResponse = await client.verifySiwe(messageToSign, signature);
+  console.log('Authenticated:', authResponse);
+  // Cookie is automatically set by the API
+  
+  // 5. Authentication complete - cookie will be sent with requests
+  const user = await client.getCurrentUser();
+  console.log('Current user:', user);
+  
+  return authResponse;
+}
+
+// Logout
+async function logout() {
+  await client.logout(); // Clears the httpOnly cookie
+  console.log('Logged out');
+}
+```
+
+### Node.js/Server-Side Authentication
+
+```typescript
+import { CartelDBClient } from '@cartel-sh/db/client';
+import { SiweMessage } from 'siwe';
+
+// Initialize client with your API key
+const client = new CartelDBClient(
+  process.env.CARTEL_API_URL!,
+  process.env.CARTEL_API_KEY! // Your app's API key
+);
+
+// Server-side SIWE verification
+async function verifyUserAuth(message: string, signature: string) {
+  try {
+    // Verify with Cartel API - cookie will be set automatically
+    const authResponse = await client.verifySiwe(message, signature);
+    
+    // The API sets an httpOnly cookie that will be included in subsequent requests
+    // No need to manually handle JWT tokens
+    return authResponse;
+  } catch (error) {
+    console.error('Authentication failed:', error);
+    throw error;
+  }
+}
+
+// Make authenticated requests - cookies are sent automatically
+async function createUserProject(projectData: any) {
+  // No need to pass JWT - cookie is sent automatically
+  const project = await client.createProject(projectData);
+  return project;
+}
+
+// Get current user - cookie is sent automatically
+async function getCurrentUserInfo() {
+  const user = await client.getCurrentUser();
+  return user;
+}
+
+// Logout
+async function logoutUser() {
+  await client.logout(); // Clears the httpOnly cookie
+}
+```
+
+### SDK Usage Examples
 
 ```typescript
 import { CartelDBClient } from '@cartel-sh/db/client';
 
 // Initialize client
 const client = new CartelDBClient(
-  'http://localhost:3003',
-  'your-api-key-here'
+  'https://api.cartel.sh',
+  'cartel_your-api-key-here'
 );
 
-// Example: Create a vanishing channel
-await client.setVanishingChannel(
-  'channel-id',
-  'guild-id',
-  3600 // duration in seconds
-);
+// After authentication (cookie is set automatically)
+// Projects API
+const projects = await client.getProjects();
+const project = await client.createProject({
+  title: 'My Project',
+  description: 'A great project',
+  isPublic: true
+});
+await client.updateProject(project.id, { description: 'Updated' });
+await client.deleteProject(project.id);
 
-// Example: Set a Discord channel setting
-await client.setChannel('guild-id', 'voice', 'channel-id');
-await client.setChannel('guild-id', 'text', 'channel-id');
-
-// Example: Start a practice session with Discord ID
-await client.startSession({ discordId: 'discord-id-here' });
-
-// Example: Start a practice session with user UUID
-await client.startSession({ userId: 'user-uuid-here' });
-
-// Example: Get practice stats
-const dailyStats = await client.getDailyStats('discord-id');
-const weeklyStats = await client.getWeeklyStatsByUserId('user-uuid');
-
-// Example: Get user by different identity types
-// Using the unified getUser function
+// User identities
 const userByEvm = await client.getUser({ evm: '0x1234...' });
 const userByDiscord = await client.getUser({ discord: '123456789' });
-const userByFarcaster = await client.getUser({ farcaster: '1234' });
-const userByLens = await client.getUser({ lens: '0xabcd...' });
-const userByTelegram = await client.getUser({ telegram: '987654321' });
-
-// Or using individual methods
-const user = await client.getUserByEvm('0x1234...');
-const user2 = await client.getUserByDiscord('123456789');
-
-// Get all identities for a user
 const identities = await client.getUserIdentities('user-uuid');
 
-// Create user with identity (auto-creates if needed)
+// Discord integrations (may not require JWT)
+await client.setVanishingChannel('channel-id', 'guild-id', 3600);
+await client.setChannel('guild-id', 'voice', 'channel-id');
+
+// Practice sessions
+await client.startSession({ discordId: 'discord-id' });
+const stats = await client.getDailyStats('discord-id');
+
+// Admin operations (requires JWT with admin role)
 const newUser = await client.createUserIdentity({
   platform: 'evm',
   identity: '0x5678...',
   isPrimary: true
 });
 
-// Admin: Connect additional identity to existing user
-const connected = await client.connectIdentity({
+await client.connectIdentity({
   userId: 'user-uuid',
   platform: 'discord',
   identity: '123456789',
   isPrimary: false
 });
-
-// Admin: Set primary identity
-await client.setPrimaryIdentity({
-  platform: 'evm',
-  identity: '0x1234...'
-});
-
-// Admin: Merge users
-await client.mergeUsers('source-user-uuid', 'target-user-uuid');
 ```
 
 ### cURL Examples
@@ -375,11 +462,16 @@ curl -X POST http://localhost:3003/api/auth/verify \
     "message": "example.com wants you to sign in with your Ethereum account:\n0x1234...\n\nSign in to MyApp\n\nURI: https://example.com\nVersion: 1\nChain ID: 1\nNonce: unique-client-nonce\nIssued At: 2024-01-01T00:00:00.000Z",
     "signature": "0xsignature..."
   }'
-# Response: {"token": "<jwt-token>", "userId": "...", "address": "...", "clientName": "MyApp"}
+# Response: {"userId": "...", "address": "...", "clientName": "MyApp"}
+# Cookie is set automatically
 
-# Use JWT for authenticated requests
+# Subsequent requests include cookie automatically
 curl -X GET http://localhost:3003/api/auth/me \
-  -H "Authorization: Bearer <jwt-token>"
+  -b cookies.txt -c cookies.txt
+
+# Logout - clears cookie
+curl -X POST http://localhost:3003/api/auth/logout \
+  -b cookies.txt -c cookies.txt
 ```
 
 #### Projects API

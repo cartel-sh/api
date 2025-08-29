@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { zValidator } from "@hono/zod-validator";
+import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { SiweMessage } from "siwe";
 import jwt from "jsonwebtoken";
 import { db, users, userIdentities, apiKeys } from "../../client";
@@ -240,8 +241,16 @@ app.post(
         { expiresIn: JWT_EXPIRY }
       );
       
+      // Set JWT as httpOnly cookie
+      setCookie(c, "cartelToken", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "Lax",
+        maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
+        path: "/",
+      });
+      
       return c.json({
-        token,
         userId,
         address,
         clientName,
@@ -254,15 +263,17 @@ app.post(
   }
 );
 
-// Get current user from JWT
+// Get current user from JWT (cookie or header)
 app.get("/me", async (c) => {
-  const authorization = c.req.header("Authorization");
+  // Try cookie first, then Authorization header
+  const token = getCookie(c, "cartelToken") || 
+    (c.req.header("Authorization")?.startsWith("Bearer ") 
+      ? c.req.header("Authorization")!.slice(7) 
+      : null);
   
-  if (!authorization?.startsWith("Bearer ")) {
+  if (!token) {
     return c.json({ error: "Not authenticated" }, 401);
   }
-  
-  const token = authorization.slice(7);
   
   try {
     const payload = jwt.verify(token, JWT_SECRET) as any;
@@ -289,6 +300,15 @@ app.get("/me", async (c) => {
   } catch (error) {
     return c.json({ error: "Invalid or expired token" }, 401);
   }
+});
+
+// Logout endpoint - clear cookie
+app.post("/logout", (c) => {
+  deleteCookie(c, "cartelToken", {
+    path: "/",
+  });
+  
+  return c.json({ message: "Logged out successfully" });
 });
 
 // Helper function to generate nonce
