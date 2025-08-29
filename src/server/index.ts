@@ -68,14 +68,6 @@ app.route("/api/auth", auth);
 app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
 
 const port = Number(process.env.PORT || Bun.env?.PORT) || 3003;
-const content = app.getOpenAPI31Document({
-  openapi: '3.1.0',
-  info: { title: 'Cartel API', version: packageJson.version },
-})
-
-const markdown = await createMarkdownFromOpenApi(
-  JSON.stringify(content)
-)
 
 app.doc("/openapi.json", {
   openapi: "3.1.0",
@@ -93,7 +85,16 @@ app.doc("/openapi.json", {
 });
 
 app.get('/llms.txt', async (c) => {
-  return c.text(markdown)
+  const content = app.getOpenAPI31Document({
+    openapi: '3.1.0',
+    info: { title: 'Cartel API', version: packageJson.version },
+  });
+  
+  const markdown = await createMarkdownFromOpenApi(
+    JSON.stringify(content)
+  );
+  
+  return c.text(markdown);
 })
 
 app.get("/docs", Scalar({
