@@ -16,6 +16,7 @@ import adminKeys from "./routes/admin/keys";
 import adminIdentities from "./routes/admin/identities";
 import projects from "./routes/projects";
 import auth from "./routes/auth";
+import { createMarkdownFromOpenApi } from "@scalar/openapi-to-markdown";
 
 config();
 
@@ -67,9 +68,17 @@ app.route("/api/auth", auth);
 app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
 
 const port = Number(process.env.PORT || Bun.env?.PORT) || 3003;
+const content = app.getOpenAPI31Document({
+  openapi: '3.1.0',
+  info: { title: 'Cartel API', version: packageJson.version },
+})
+
+const markdown = await createMarkdownFromOpenApi(
+  JSON.stringify(content)
+)
 
 app.doc("/openapi.json", {
-  openapi: packageJson.version,
+  openapi: "3.1.0",
   info: {
     title: "Cartel API",
     version: packageJson.version,
@@ -83,7 +92,12 @@ app.doc("/openapi.json", {
   ],
 });
 
+app.get('/llms.txt', async (c) => {
+  return c.text(markdown)
+})
+
 app.get("/docs", Scalar({
+  pageTitle: "Cartel API",
   url: "/openapi.json",
 }));
 
@@ -113,8 +127,7 @@ app.onError((err, c) => {
   return c.json({ error: "Internal server error" }, 500);
 });
 
-console.log(`Starting server on port ${port}...`);
-console.log(`Server is running on http://localhost:${port}`);
+console.log(`Documentation is available at http://localhost:${port}/docs`);
 
 export default {
   port,

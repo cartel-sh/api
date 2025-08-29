@@ -44,6 +44,7 @@
     "@hono/zod-validator": "^0.7.2",
     "@libsql/client": "^0.14.0",
     "@scalar/hono-api-reference": "^0.9.16",
+    "@scalar/openapi-to-markdown": "^0.2.30",
     "@types/luxon": "^3.7.1",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.40.0",
