@@ -1,13 +1,9 @@
-import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq } from "drizzle-orm";
 import { db, channelSettings } from "../../../client";
 import type { ChannelSetting } from "../../../schema";
 
-const app = new Hono();
-
-// GET /api/discord/channels/:guildId/:key
+const app = new OpenAPIHono();
 app.get("/:guildId/:key", async (c) => {
   const guildId = c.req.param("guildId");
   const key = c.req.param("key");
@@ -31,7 +27,6 @@ app.get("/:guildId/:key", async (c) => {
   }
 });
 
-// GET /api/discord/channels/:guildId
 app.get("/:guildId", async (c) => {
   const guildId = c.req.param("guildId");
   
@@ -47,22 +42,51 @@ app.get("/:guildId", async (c) => {
   }
 });
 
-// PUT /api/discord/channels/:guildId/:key
-app.put(
-  "/:guildId/:key",
-  zValidator(
-    "json",
-    z.object({
-      channelId: z.string(),
+const updateChannelSettingRoute = createRoute({
+  method: "put",
+  path: "/{guildId}/{key}",
+  request: {
+    params: z.object({
+      guildId: z.string(),
+      key: z.string(),
     }),
-  ),
-  async (c) => {
-    const guildId = c.req.param("guildId");
-    const key = c.req.param("key");
-    const { channelId } = c.req.valid("json");
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            channelId: z.string(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Success",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+  },
+  tags: ["Discord"],
+});
+
+app.openapi(updateChannelSettingRoute, async (c) => {
+  const guildId = c.req.valid("param").guildId;
+  const key = c.req.valid("param").key;
+  const { channelId } = c.req.valid("json");
     
     try {
-      // Check if setting exists
       const existing = await db.query.channelSettings.findFirst({
         where: and(
           eq(channelSettings.guildId, guildId),
@@ -72,7 +96,6 @@ app.put(
 
       let result;
       if (existing) {
-        // Update existing setting
         [result] = await db
           .update(channelSettings)
           .set({
@@ -85,7 +108,6 @@ app.put(
           ))
           .returning();
       } else {
-        // Insert new setting
         [result] = await db
           .insert(channelSettings)
           .values({
@@ -104,7 +126,6 @@ app.put(
   },
 );
 
-// DELETE /api/discord/channels/:guildId/:key
 app.delete("/:guildId/:key", async (c) => {
   const guildId = c.req.param("guildId");
   const key = c.req.param("key");
@@ -129,7 +150,6 @@ app.delete("/:guildId/:key", async (c) => {
   }
 });
 
-// DELETE /api/discord/channels/:guildId
 app.delete("/:guildId", async (c) => {
   const guildId = c.req.param("guildId");
   

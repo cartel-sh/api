@@ -1,24 +1,51 @@
-import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
 import { db, vanishingChannels } from "../../../client";
 import type { VanishingChannel } from "../../../schema";
 
-const app = new Hono();
+const app = new OpenAPIHono();
+const createVanishingChannelRoute = createRoute({
+  method: "post",
+  path: "/",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            channelId: z.string().describe("Discord channel ID"),
+            guildId: z.string().describe("Discord guild ID"),
+            duration: z.number().positive().describe("Vanish duration in seconds"),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Vanishing channel created or updated",
+      content: {
+        "application/json": {
+          schema: z.object({
+            success: z.boolean(),
+          }),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+          }),
+        },
+      },
+    },
+  },
+  tags: ["Discord"],
+});
 
-// POST /api/vanishing-channels
-app.post(
-  "/",
-  zValidator(
-    "json",
-    z.object({
-      channelId: z.string(),
-      guildId: z.string(),
-      duration: z.number().positive(),
-    }),
-  ),
-  async (c) => {
+app.openapi(createVanishingChannelRoute, async (c) => {
     const { channelId, guildId, duration } = c.req.valid("json");
     
     try {
@@ -39,7 +66,7 @@ app.post(
           },
         });
 
-      return c.json({ success: true });
+      return c.json({ success: true }, 200);
     } catch (error) {
       console.error("[API] Error setting vanishing channel:", error);
       return c.json({ error: "Failed to set vanishing channel" }, 500);
@@ -47,25 +74,95 @@ app.post(
   },
 );
 
-// DELETE /api/vanishing-channels/:channelId
-app.delete("/:channelId", async (c) => {
-  const channelId = c.req.param("channelId");
+const deleteVanishingChannelRoute = createRoute({
+  method: "delete",
+  path: "/{channelId}",
+  request: {
+    params: z.object({
+      channelId: z.string(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Vanishing channel deleted",
+      content: {
+        "application/json": {
+          schema: z.object({
+            success: z.boolean(),
+          }),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+          }),
+        },
+      },
+    },
+  },
+  tags: ["Discord"],
+});
+
+app.openapi(deleteVanishingChannelRoute, async (c) => {
+  const { channelId } = c.req.valid("param");
   
   try {
     await db
       .delete(vanishingChannels)
       .where(eq(vanishingChannels.channelId, channelId));
     
-    return c.json({ success: true });
+    return c.json({ success: true }, 200);
   } catch (error) {
     console.error("[API] Error removing vanishing channel:", error);
     return c.json({ error: "Failed to remove vanishing channel" }, 500);
   }
 });
 
-// GET /api/vanishing-channels
-app.get("/", async (c) => {
-  const guildId = c.req.query("guildId");
+const listVanishingChannelsRoute = createRoute({
+  method: "get",
+  path: "/",
+  request: {
+    query: z.object({
+      guildId: z.string().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "List of vanishing channels",
+      content: {
+        "application/json": {
+          schema: z.array(z.object({
+            channelId: z.string(),
+            guildId: z.string(),
+            vanishAfter: z.number(),
+            messagesDeleted: z.number(),
+            lastDeletion: z.string().nullable(),
+            createdAt: z.string().nullable(),
+            updatedAt: z.string().nullable(),
+          })),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+          }),
+        },
+      },
+    },
+  },
+  tags: ["Discord"],
+});
+
+app.openapi(listVanishingChannelsRoute, async (c) => {
+  const { guildId } = c.req.valid("query");
   
   try {
     let channels;
@@ -78,23 +175,70 @@ app.get("/", async (c) => {
       channels = await db.query.vanishingChannels.findMany();
     }
 
-    // Ensure proper typing for messagesDeleted and lastDeletion
     const formattedChannels: VanishingChannel[] = channels.map((channel) => ({
       ...channel,
       messagesDeleted: Number(channel.messagesDeleted) || 0,
       lastDeletion: channel.lastDeletion || null,
     }));
 
-    return c.json(formattedChannels);
+    return c.json(formattedChannels, 200);
   } catch (error) {
     console.error("[API] Error getting vanishing channels:", error);
     return c.json({ error: "Failed to get vanishing channels" }, 500);
   }
 });
 
-// GET /api/vanishing-channels/:channelId
-app.get("/:channelId", async (c) => {
-  const channelId = c.req.param("channelId");
+const getVanishingChannelRoute = createRoute({
+  method: "get",
+  path: "/{channelId}",
+  request: {
+    params: z.object({
+      channelId: z.string(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Vanishing channel details",
+      content: {
+        "application/json": {
+          schema: z.object({
+            channelId: z.string(),
+            guildId: z.string(),
+            vanishAfter: z.number(),
+            messagesDeleted: z.number(),
+            lastDeletion: z.string().nullable(),
+            createdAt: z.string().nullable(),
+            updatedAt: z.string().nullable(),
+          }),
+        },
+      },
+    },
+    404: {
+      description: "Channel not found",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+          }),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+          }),
+        },
+      },
+    },
+  },
+  tags: ["Discord"],
+});
+
+app.openapi(getVanishingChannelRoute, async (c) => {
+  const { channelId } = c.req.valid("param");
   
   try {
     const channel = await db.query.vanishingChannels.findFirst({
@@ -111,28 +255,71 @@ app.get("/:channelId", async (c) => {
       lastDeletion: channel.lastDeletion || null,
     };
 
-    return c.json(formattedChannel);
+    return c.json(formattedChannel, 200);
   } catch (error) {
     console.error("[API] Error getting vanishing channel:", error);
     return c.json({ error: "Failed to get vanishing channel" }, 500);
   }
 });
 
-// PATCH /api/vanishing-channels/:channelId/stats
-app.patch(
-  "/:channelId/stats",
-  zValidator(
-    "json",
-    z.object({
-      deletedCount: z.number().positive(),
+const updateChannelStatsRoute = createRoute({
+  method: "patch",
+  path: "/{channelId}/stats",
+  request: {
+    params: z.object({
+      channelId: z.string(),
     }),
-  ),
-  async (c) => {
-    const channelId = c.req.param("channelId");
-    const { deletedCount } = c.req.valid("json");
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            deletedCount: z.number().positive(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Stats updated successfully",
+      content: {
+        "application/json": {
+          schema: z.object({
+            success: z.boolean(),
+            newCount: z.number(),
+          }),
+        },
+      },
+    },
+    404: {
+      description: "Channel not found",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+          }),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+          }),
+        },
+      },
+    },
+  },
+  tags: ["Discord"],
+});
+
+app.openapi(updateChannelStatsRoute, async (c) => {
+  const { channelId } = c.req.valid("param");
+  const { deletedCount } = c.req.valid("json");
     
     try {
-      // First get current count
       const currentChannel = await db.query.vanishingChannels.findFirst({
         where: eq(vanishingChannels.channelId, channelId),
       });
@@ -152,7 +339,7 @@ app.patch(
         })
         .where(eq(vanishingChannels.channelId, channelId));
 
-      return c.json({ success: true, newCount });
+      return c.json({ success: true, newCount }, 200);
     } catch (error) {
       console.error("[API] Error updating vanishing channel stats:", error);
       return c.json({ error: "Failed to update channel stats" }, 500);

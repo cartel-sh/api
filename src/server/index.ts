@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { OpenAPIHono } from "@hono/zod-openapi";
+import { Scalar } from "@scalar/hono-api-reference";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { config } from "dotenv";
@@ -18,14 +19,11 @@ import auth from "./routes/auth";
 
 config();
 
-const app = new Hono();
+const app = new OpenAPIHono();
 
-// Middleware
 app.use("*", cors({
   credentials: true,
   origin: (origin) => {
-    // In production, validate against allowed origins from database
-    // For now, allow configured origins
     const allowedOrigins = [
       "http://localhost:3000",
       "http://localhost:3001", 
@@ -34,13 +32,12 @@ app.use("*", cors({
       "https://www.cartel.sh",
     ];
     
-    if (!origin) return "*"; // Allow requests without origin (e.g., Postman)
+    if (!origin) return "*";
     
     if (allowedOrigins.includes(origin)) {
       return origin;
     }
     
-    // Check for wildcard subdomains
     for (const allowed of allowedOrigins) {
       if (allowed.startsWith("*.")) {
         const domain = allowed.slice(2);
@@ -50,39 +47,51 @@ app.use("*", cors({
       }
     }
     
-    return null; // Deny if not in allowed list
+    return null;
   },
-}));
+}))
 app.use("*", logger());
-
-// Use optional API key middleware for rate limiting (doesn't require API key)
 app.use("/api/*", optionalApiKey);
 
-// Routes
 app.route("/api/discord/vanish", vanish);
 app.route("/api/discord/channels", channels);
 app.route("/api/sessions/practice", practice);
 app.route("/api/users/applications", applications);
 app.route("/api/users/id", id);
 app.route("/api/users/identities", identities);
-
-// Admin routes (requires admin scope)
 app.route("/api/admin/keys", adminKeys);
 app.route("/api/admin/identities", adminIdentities);
-
-// Project routes (supports both API key and JWT auth)
 app.route("/api/projects", projects);
-
-// Authentication routes
 app.route("/api/auth", auth);
 
-// Health check
 app.get("/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
 
-// Root route
+const port = Number(process.env.PORT || Bun.env?.PORT) || 3003;
+
+app.doc("/openapi.json", {
+  openapi: packageJson.version,
+  info: {
+    title: "Cartel API",
+    version: packageJson.version,
+    description: "Shared REST API for Cartel",
+  },
+  servers: [
+    {
+      url: process.env.API_URL || `http://localhost:${port}`,
+      description: "API Server",
+    },
+  ],
+});
+
+app.get("/docs", Scalar({
+  url: "/openapi.json",
+}));
+
 app.get("/", (c) => c.json({
   name: "@cartel-sh/api",
   version: packageJson.version,
+  documentation: "/docs",
+  openapi: "/openapi.json",
   endpoints: [
     "/api/discord/vanish",
     "/api/discord/channels",
@@ -97,17 +106,12 @@ app.get("/", (c) => c.json({
   ]
 }));
 
-// 404 handler
 app.notFound((c) => c.json({ error: "Not found" }, 404));
 
-// Error handler
 app.onError((err, c) => {
   console.error(`Error: ${err}`);
   return c.json({ error: "Internal server error" }, 500);
 });
-
-// For Bun runtime
-const port = Number(process.env.PORT || Bun.env?.PORT) || 3003;
 
 console.log(`Starting server on port ${port}...`);
 console.log(`Server is running on http://localhost:${port}`);

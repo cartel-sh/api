@@ -1,37 +1,77 @@
-import { Hono } from "hono";
-import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq, sql } from "drizzle-orm";
 import { db, userIdentities, users } from "../../../client";
 import { requireJwtAuth } from "../../middleware/auth";
 
-const app = new Hono();
+const app = new OpenAPIHono();
 
-// All admin routes require JWT authentication
-// TODO: Add admin role check once roles are implemented
 app.use("*", requireJwtAuth);
 
-// Platform enum for validation
 const PlatformEnum = z.enum(["discord", "evm", "lens", "farcaster", "telegram"]);
 
-// POST /api/admin/identities/connect - Connect a new identity to an existing user
-const connectIdentitySchema = z.object({
-  userId: z.uuid(),
-  platform: PlatformEnum,
-  identity: z.string().min(1),
-  isPrimary: z.boolean().optional().default(false)
+const connectIdentityRoute = createRoute({
+  method: "post",
+  path: "/connect",
+  middleware: [requireJwtAuth],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            userId: z.string().uuid(),
+            platform: PlatformEnum,
+            identity: z.string().min(1),
+            isPrimary: z.boolean().optional().default(false)
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    201: {
+      description: "Success",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    400: {
+      description: "Bad request",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    404: {
+      description: "Not found",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+  },
+  tags: ["Admin"],
 });
 
-app.post("/connect", zValidator("json", connectIdentitySchema), async (c) => {
+app.openapi(connectIdentityRoute, async (c) => {
   const { userId, platform, identity, isPrimary } = c.req.valid("json");
   
   try {
-    // Normalize identity based on platform
     const normalizedIdentity = platform === "evm" || platform === "lens" 
       ? identity.toLowerCase() 
       : identity;
     
-    // Check if user exists
     const user = await db.query.users.findFirst({
       where: eq(users.id, userId)
     });
@@ -40,7 +80,6 @@ app.post("/connect", zValidator("json", connectIdentitySchema), async (c) => {
       return c.json({ error: "User not found" }, 404);
     }
     
-    // Check if identity already exists (for any user)
     const existingIdentity = await db.query.userIdentities.findFirst({
       where: and(
         eq(userIdentities.platform, platform),
@@ -55,7 +94,6 @@ app.post("/connect", zValidator("json", connectIdentitySchema), async (c) => {
       return c.json({ error: "Identity already connected to another user" }, 400);
     }
     
-    // If setting as primary, unset other primary identities for this user
     if (isPrimary) {
       await db.update(userIdentities)
         .set({ isPrimary: false, updatedAt: new Date() })
@@ -65,7 +103,6 @@ app.post("/connect", zValidator("json", connectIdentitySchema), async (c) => {
         ));
     }
     
-    // Connect the identity
     const [newIdentity] = await db.insert(userIdentities).values({
       userId,
       platform,
@@ -83,22 +120,67 @@ app.post("/connect", zValidator("json", connectIdentitySchema), async (c) => {
   }
 });
 
-// DELETE /api/admin/identities/disconnect - Disconnect an identity from a user
-const disconnectIdentitySchema = z.object({
-  platform: PlatformEnum,
-  identity: z.string().min(1)
+const disconnectIdentityRoute = createRoute({
+  method: "delete",
+  path: "/disconnect",
+  middleware: [requireJwtAuth],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            platform: PlatformEnum,
+            identity: z.string().min(1)
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Success",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    400: {
+      description: "Bad request",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    404: {
+      description: "Not found",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+  },
+  tags: ["Admin"],
 });
 
-app.delete("/disconnect", zValidator("json", disconnectIdentitySchema), async (c) => {
+app.openapi(disconnectIdentityRoute, async (c) => {
   const { platform, identity } = c.req.valid("json");
   
   try {
-    // Normalize identity based on platform
     const normalizedIdentity = platform === "evm" || platform === "lens" 
       ? identity.toLowerCase() 
       : identity;
     
-    // Find the identity
     const existingIdentity = await db.query.userIdentities.findFirst({
       where: and(
         eq(userIdentities.platform, platform),
@@ -110,7 +192,6 @@ app.delete("/disconnect", zValidator("json", disconnectIdentitySchema), async (c
       return c.json({ error: "Identity not found" }, 404);
     }
     
-    // Check if this is the user's only identity
     const identityCount = await db
       .select({ count: sql<number>`count(*)` })
       .from(userIdentities)
@@ -120,14 +201,12 @@ app.delete("/disconnect", zValidator("json", disconnectIdentitySchema), async (c
       return c.json({ error: "Cannot disconnect user's only identity" }, 400);
     }
     
-    // Delete the identity
     await db.delete(userIdentities)
       .where(and(
         eq(userIdentities.platform, platform),
         eq(userIdentities.identity, normalizedIdentity)
       ));
     
-    // If this was primary, set another identity as primary
     if (existingIdentity.isPrimary) {
       const remainingIdentity = await db.query.userIdentities.findFirst({
         where: eq(userIdentities.userId, existingIdentity.userId)
@@ -153,22 +232,59 @@ app.delete("/disconnect", zValidator("json", disconnectIdentitySchema), async (c
   }
 });
 
-// PUT /api/admin/identities/set-primary - Set an identity as primary for a user
-const setPrimarySchema = z.object({
-  platform: PlatformEnum,
-  identity: z.string().min(1)
+const setPrimaryRoute = createRoute({
+  method: "put",
+  path: "/set-primary",
+  middleware: [requireJwtAuth],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            platform: PlatformEnum,
+            identity: z.string().min(1)
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Success",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    404: {
+      description: "Not found",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+  },
+  tags: ["Admin"],
 });
 
-app.put("/set-primary", zValidator("json", setPrimarySchema), async (c) => {
+app.openapi(setPrimaryRoute, async (c) => {
   const { platform, identity } = c.req.valid("json");
   
   try {
-    // Normalize identity based on platform
     const normalizedIdentity = platform === "evm" || platform === "lens" 
       ? identity.toLowerCase() 
       : identity;
     
-    // Find the identity
     const existingIdentity = await db.query.userIdentities.findFirst({
       where: and(
         eq(userIdentities.platform, platform),
@@ -184,7 +300,6 @@ app.put("/set-primary", zValidator("json", setPrimarySchema), async (c) => {
       return c.json({ message: "Identity is already primary" });
     }
     
-    // Unset other primary identities for this user
     await db.update(userIdentities)
       .set({ isPrimary: false, updatedAt: new Date() })
       .where(and(
@@ -192,7 +307,6 @@ app.put("/set-primary", zValidator("json", setPrimarySchema), async (c) => {
         eq(userIdentities.isPrimary, true)
       ));
     
-    // Set this identity as primary
     await db.update(userIdentities)
       .set({ isPrimary: true, updatedAt: new Date() })
       .where(and(
@@ -210,13 +324,60 @@ app.put("/set-primary", zValidator("json", setPrimarySchema), async (c) => {
   }
 });
 
-// POST /api/admin/identities/merge-users - Merge two users by moving all identities to one user
-const mergeUsersSchema = z.object({
-  sourceUserId: z.string().uuid(),
-  targetUserId: z.string().uuid()
+const mergeUsersRoute = createRoute({
+  method: "post",
+  path: "/merge-users",
+  middleware: [requireJwtAuth],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            sourceUserId: z.string().uuid(),
+            targetUserId: z.string().uuid()
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Success",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    400: {
+      description: "Bad request",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    404: {
+      description: "Not found",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+  },
+  tags: ["Admin"],
 });
 
-app.post("/merge-users", zValidator("json", mergeUsersSchema), async (c) => {
+app.openapi(mergeUsersRoute, async (c) => {
   const { sourceUserId, targetUserId } = c.req.valid("json");
   
   if (sourceUserId === targetUserId) {
@@ -224,7 +385,6 @@ app.post("/merge-users", zValidator("json", mergeUsersSchema), async (c) => {
   }
   
   try {
-    // Check if both users exist
     const [sourceUser, targetUser] = await Promise.all([
       db.query.users.findFirst({ where: eq(users.id, sourceUserId) }),
       db.query.users.findFirst({ where: eq(users.id, targetUserId) })
@@ -234,7 +394,6 @@ app.post("/merge-users", zValidator("json", mergeUsersSchema), async (c) => {
       return c.json({ error: "One or both users not found" }, 404);
     }
     
-    // Get all identities from source user
     const sourceIdentities = await db.query.userIdentities.findMany({
       where: eq(userIdentities.userId, sourceUserId)
     });
@@ -243,16 +402,14 @@ app.post("/merge-users", zValidator("json", mergeUsersSchema), async (c) => {
       return c.json({ error: "Source user has no identities" }, 400);
     }
     
-    // Move all identities to target user
     await db.update(userIdentities)
       .set({ 
         userId: targetUserId, 
-        isPrimary: false, // Reset primary status when merging
+        isPrimary: false,
         updatedAt: new Date() 
       })
       .where(eq(userIdentities.userId, sourceUserId));
     
-    // Delete the source user (cascades to other related data)
     await db.delete(users).where(eq(users.id, sourceUserId));
     
     return c.json({ 

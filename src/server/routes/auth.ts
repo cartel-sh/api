@@ -1,6 +1,4 @@
-import { Hono } from "hono";
-import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { SiweMessage } from "siwe";
 import jwt from "jsonwebtoken";
@@ -16,27 +14,82 @@ type Variables = {
   allowedOrigins?: string[];
 };
 
-const app = new Hono<{ Variables: Variables }>();
+const app = new OpenAPIHono<{ Variables: Variables }>();
 
-// JWT configuration
 const JWT_SECRET = process.env.JWT_SECRET || Bun.env.JWT_SECRET || "development-secret-key-change-this-in-production-minimum-32-chars";
 const JWT_EXPIRY = "7d";
 
-// Verify SIWE signature and create session (requires API key)
-app.post(
-  "/verify",
-  zValidator(
-    "json",
-    z.object({
-      message: z.string(),
-      signature: z.string(),
-    })
-  ),
-  async (c) => {
+const verifyRoute = createRoute({
+  method: "post",
+  path: "/verify",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string().describe("SIWE message string"),
+            signature: z.string().describe("Signature from wallet"),
+          }),
+        },
+      },
+    },
+    headers: z.object({
+      "X-API-Key": z.string().optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Successfully authenticated",
+      content: {
+        "application/json": {
+          schema: z.object({
+            userId: z.string(),
+            address: z.string(),
+            clientName: z.string().optional(),
+            message: z.string(),
+          }),
+        },
+      },
+    },
+    400: {
+      description: "Bad request",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+            message: z.string().optional(),
+          }),
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+          }),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+          }),
+        },
+      },
+    },
+  },
+  tags: ["Authentication"],
+});
+
+app.openapi(verifyRoute, async (c) => {
     const { message, signature } = c.req.valid("json");
     const apiKey = c.req.header("X-API-Key");
     
-    // API key is required
     if (!apiKey) {
       return c.json({ error: "API key required" }, 401);
     }
@@ -44,12 +97,10 @@ app.post(
     try {
       const siweMessage = new SiweMessage(message);
       
-      // Validate API key format
       if (!isValidApiKeyFormat(apiKey)) {
         return c.json({ error: "Invalid API key format" }, 401);
       }
       
-      // Get API key from database
       const keyPrefix = getApiKeyPrefix(apiKey);
       const keyHash = hashApiKey(apiKey);
       const now = new Date();
@@ -74,21 +125,16 @@ app.post(
       const clientName = apiKeyData.clientName || undefined;
       const allowedOrigins = apiKeyData.allowedOrigins || [];
       
-      // Update last used timestamp
       db.update(apiKeys)
         .set({ lastUsedAt: now })
         .where(eq(apiKeys.id, apiKeyData.id))
         .execute()
         .catch(console.error);
       
-      // Verify domain/URI against allowed origins
       if (allowedOrigins.length > 0) {
         const isValidOrigin = allowedOrigins.some(origin => {
-          // Check if domain matches
           if (siweMessage.domain === origin) return true;
-          // Check if URI starts with the origin
           if (siweMessage.uri && siweMessage.uri.startsWith(origin)) return true;
-          // Handle wildcard subdomains (*.example.com)
           if (origin.startsWith("*.")) {
             const baseDomain = origin.slice(2);
             return siweMessage.domain.endsWith(baseDomain);
@@ -104,7 +150,6 @@ app.post(
         }
       }
       
-      // Verify timestamp (not expired, not too far in future)
       if (siweMessage.expirationTime) {
         const expiry = new Date(siweMessage.expirationTime);
         if (expiry < now) {
@@ -118,17 +163,14 @@ app.post(
         }
       }
       
-      // Verify signature
       const result = await siweMessage.verify({ signature });
       
       if (!result.success) {
         return c.json({ error: "Invalid signature" }, 401);
       }
       
-      // Find or create user
       const address = siweMessage.address.toLowerCase();
       
-      // Check if identity exists
       let identity = await db.query.userIdentities.findFirst({
         where: and(
           eq(userIdentities.platform, "evm"),
@@ -142,7 +184,6 @@ app.post(
       let userId: string;
       
       if (!identity) {
-        // Create new user and identity
         const [newUser] = await db.insert(users).values({}).returning();
         if (!newUser) {
           throw new Error("Failed to create user");
@@ -159,7 +200,6 @@ app.post(
         userId = identity.userId;
       }
       
-      // Generate JWT
       const token = jwt.sign(
         { 
           userId,
@@ -172,7 +212,6 @@ app.post(
         { expiresIn: JWT_EXPIRY }
       );
       
-      // Set JWT as httpOnly cookie
       setCookie(c, "cartel-seal", token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
@@ -186,7 +225,7 @@ app.post(
         address,
         clientName,
         message: "Successfully authenticated",
-      });
+      }, 200);
     } catch (error) {
       console.error("SIWE verification error:", error);
       return c.json({ error: "Authentication failed" }, 500);
@@ -194,9 +233,52 @@ app.post(
   }
 );
 
-// Get current user from JWT (cookie or header)
-app.get("/me", async (c) => {
-  // Try cookie first, then Authorization header
+const getMeRoute = createRoute({
+  method: "get",
+  path: "/me",
+  security: [
+    {
+      bearerAuth: [],
+    },
+  ],
+  responses: {
+    200: {
+      description: "Current user information",
+      content: {
+        "application/json": {
+          schema: z.object({
+            userId: z.string(),
+            address: z.string(),
+            user: z.any(),
+          }),
+        },
+      },
+    },
+    401: {
+      description: "Not authenticated or invalid token",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+          }),
+        },
+      },
+    },
+    404: {
+      description: "User not found",
+      content: {
+        "application/json": {
+          schema: z.object({
+            error: z.string(),
+          }),
+        },
+      },
+    },
+  },
+  tags: ["Authentication"],
+});
+
+app.openapi(getMeRoute, async (c) => {
   const token = getCookie(c, "cartel-seal") || 
     (c.req.header("Authorization")?.startsWith("Bearer ") 
       ? c.req.header("Authorization")!.slice(7) 
@@ -209,7 +291,6 @@ app.get("/me", async (c) => {
   try {
     const payload = jwt.verify(token, JWT_SECRET) as any;
     
-    // Get user details
     const user = await db.query.users.findFirst({
       where: eq(users.id, payload.userId),
       with: {
@@ -227,19 +308,36 @@ app.get("/me", async (c) => {
       userId: payload.userId,
       address: payload.address,
       user,
-    });
+    }, 200);
   } catch (error) {
     return c.json({ error: "Invalid or expired token" }, 401);
   }
 });
 
-// Logout endpoint - clear cookie
-app.post("/logout", (c) => {
+const logoutRoute = createRoute({
+  method: "post",
+  path: "/logout",
+  responses: {
+    200: {
+      description: "Successfully logged out",
+      content: {
+        "application/json": {
+          schema: z.object({
+            message: z.string(),
+          }),
+        },
+      },
+    },
+  },
+  tags: ["Authentication"],
+});
+
+app.openapi(logoutRoute, (c) => {
   deleteCookie(c, "cartel-seal", {
     path: "/",
   });
   
-  return c.json({ message: "Logged out successfully" });
+  return c.json({ message: "Logged out successfully" }, 200);
 });
 
 export default app;

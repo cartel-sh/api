@@ -1,15 +1,11 @@
-import { Hono } from "hono";
-import { z } from "zod";
-import { zValidator } from "@hono/zod-validator";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq } from "drizzle-orm";
 import { db, userIdentities, users } from "../../../client";
 
-const app = new Hono();
+const app = new OpenAPIHono();
 
-// Platform enum for validation
 const PlatformEnum = z.enum(["discord", "evm", "lens", "farcaster", "telegram"]);
 
-// GET /api/users/id/by-evm/:address - Get user by EVM address
 app.get("/by-evm/:address", async (c) => {
   const address = c.req.param("address").toLowerCase();
   
@@ -43,7 +39,6 @@ app.get("/by-evm/:address", async (c) => {
   }
 });
 
-// GET /api/users/id/by-lens/:address - Get user by Lens handle/address
 app.get("/by-lens/:address", async (c) => {
   const address = c.req.param("address").toLowerCase();
   
@@ -77,7 +72,6 @@ app.get("/by-lens/:address", async (c) => {
   }
 });
 
-// GET /api/users/id/by-farcaster/:fid - Get user by Farcaster FID
 app.get("/by-farcaster/:fid", async (c) => {
   const fid = c.req.param("fid");
   
@@ -111,7 +105,6 @@ app.get("/by-farcaster/:fid", async (c) => {
   }
 });
 
-// GET /api/users/id/by-discord/:discordId - Get user by Discord ID
 app.get("/by-discord/:discordId", async (c) => {
   const discordId = c.req.param("discordId");
   
@@ -145,7 +138,6 @@ app.get("/by-discord/:discordId", async (c) => {
   }
 });
 
-// GET /api/users/id/by-telegram/:telegramId - Get user by Telegram ID
 app.get("/by-telegram/:telegramId", async (c) => {
   const telegramId = c.req.param("telegramId");
   
@@ -180,23 +172,59 @@ app.get("/by-telegram/:telegramId", async (c) => {
 });
 
 
-// POST /api/users/id - Create or get user with identity (auto-creates user if needed)
-const createIdentitySchema = z.object({
-  platform: PlatformEnum,
-  identity: z.string().min(1),
-  isPrimary: z.boolean().optional().default(false)
+const createIdentityRoute = createRoute({
+  method: "post",
+  path: "/",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            platform: PlatformEnum,
+            identity: z.string().min(1),
+            isPrimary: z.boolean().optional().default(false)
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Success",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    201: {
+      description: "Success",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+  },
+  tags: ["Users"],
 });
 
-app.post("/", zValidator("json", createIdentitySchema), async (c) => {
+app.openapi(createIdentityRoute, async (c) => {
   const { platform, identity, isPrimary } = c.req.valid("json");
   
   try {
-    // Normalize identity based on platform
     const normalizedIdentity = platform === "evm" || platform === "lens" 
       ? identity.toLowerCase() 
       : identity;
     
-    // Check if identity already exists
     const existingIdentity = await db.query.userIdentities.findFirst({
       where: and(
         eq(userIdentities.platform, platform),
@@ -216,7 +244,6 @@ app.post("/", zValidator("json", createIdentitySchema), async (c) => {
       });
     }
     
-    // Create new user and identity
     const [newUser] = await db.insert(users).values({}).returning();
     
     if (!newUser) {
@@ -227,7 +254,7 @@ app.post("/", zValidator("json", createIdentitySchema), async (c) => {
       userId: newUser.id,
       platform,
       identity: normalizedIdentity,
-      isPrimary: isPrimary || true // First identity is primary by default
+      isPrimary: isPrimary || true
     }).returning();
     
     return c.json({ 

@@ -1,37 +1,67 @@
-import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { eq, desc } from "drizzle-orm";
 import { db, apiKeys, users } from "../../../client";
 import { generateApiKey, hashApiKey, getApiKeyPrefix } from "../../utils/crypto";
 import { requireJwtAuth } from "../../middleware/auth";
 
-const app = new Hono();
+const app = new OpenAPIHono();
 
-// All admin routes require JWT authentication
-// TODO: Add admin role check once roles are implemented
 app.use("*", requireJwtAuth);
 
-// POST /api/admin/keys - Generate new API key
-app.post(
-  "/",
-  zValidator(
-    "json",
-    z.object({
-      userId: z.string().uuid(),
-      name: z.string().min(1).max(100),
-      description: z.string().optional(),
-      scopes: z.array(z.string()).default(["read", "write"]),
-      clientName: z.string().optional(),
-      allowedOrigins: z.array(z.string()).optional(),
-      expiresIn: z.number().optional(), // seconds until expiration
-    }),
-  ),
-  async (c) => {
+const createApiKeyRoute = createRoute({
+  method: "post",
+  path: "/",
+  middleware: [requireJwtAuth],
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            userId: z.string().uuid(),
+            name: z.string().min(1).max(100),
+            description: z.string().optional(),
+            scopes: z.array(z.string()).default(["read", "write"]),
+            clientName: z.string().optional(),
+            allowedOrigins: z.array(z.string()).optional(),
+            expiresIn: z.number().optional().describe("Seconds until expiration"),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Success",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    404: {
+      description: "Not found",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+  },
+  tags: ["Admin"],
+});
+
+app.openapi(createApiKeyRoute, async (c) => {
     const { userId, name, description, scopes, clientName, allowedOrigins, expiresIn } = c.req.valid("json");
     
     try {
-      // Check if user exists
       const user = await db.query.users.findFirst({
         where: eq(users.id, userId),
       });
@@ -40,17 +70,14 @@ app.post(
         return c.json({ error: "User not found" }, 404);
       }
       
-      // Generate new API key
       const apiKey = generateApiKey();
       const keyPrefix = getApiKeyPrefix(apiKey);
       const keyHash = hashApiKey(apiKey);
       
-      // Calculate expiration
       const expiresAt = expiresIn 
         ? new Date(Date.now() + expiresIn * 1000)
         : null;
       
-      // Insert into database
       const result = await db
         .insert(apiKeys)
         .values({
@@ -71,7 +98,6 @@ app.post(
         return c.json({ error: "Failed to create API key" }, 500);
       }
       
-      // Return the key only once
       return c.json({
         id: newKey.id,
         userId: newKey.userId,
@@ -79,7 +105,7 @@ app.post(
         description: newKey.description,
         scopes: newKey.scopes,
         expiresAt: newKey.expiresAt,
-        apiKey, // This is the only time the full key is shown
+        apiKey,
         message: "Save this API key securely. It will not be shown again.",
       });
     } catch (error) {
@@ -89,7 +115,6 @@ app.post(
   },
 );
 
-// GET /api/admin/keys - List all keys (without showing actual keys)
 app.get("/", async (c) => {
   const userId = c.req.query("userId");
   
@@ -121,7 +146,6 @@ app.get("/", async (c) => {
       });
     }
     
-    // Don't return the hash, only the prefix for identification
     const sanitizedKeys = keys.map((key) => ({
       id: key.id,
       userId: key.userId,
@@ -146,7 +170,6 @@ app.get("/", async (c) => {
   }
 });
 
-// GET /api/admin/keys/:id - Get specific key details
 app.get("/:id", async (c) => {
   const keyId = c.req.param("id");
   
@@ -166,7 +189,6 @@ app.get("/:id", async (c) => {
       return c.json({ error: "API key not found" }, 404);
     }
     
-    // Don't return the hash
     return c.json({
       id: key.id,
       userId: key.userId,
@@ -190,54 +212,90 @@ app.get("/:id", async (c) => {
   }
 });
 
-// PATCH /api/admin/keys/:id - Update key details
-app.patch(
-  "/:id",
-  zValidator(
-    "json",
-    z.object({
-      name: z.string().min(1).max(100).optional(),
-      description: z.string().optional(),
-      scopes: z.array(z.string()).optional(),
-      isActive: z.boolean().optional(),
-      expiresAt: z.string().datetime().nullable().optional(),
+const updateApiKeyRoute = createRoute({
+  method: "patch",
+  path: "/{id}",
+  middleware: [requireJwtAuth],
+  request: {
+    params: z.object({
+      id: z.string(),
     }),
-  ),
-  async (c) => {
-    const keyId = c.req.param("id");
-    const updates = c.req.valid("json");
-    
-    try {
-      const [updated] = await db
-        .update(apiKeys)
-        .set({
-          ...updates,
-          expiresAt: updates.expiresAt ? new Date(updates.expiresAt) : undefined,
-          updatedAt: new Date(),
-        })
-        .where(eq(apiKeys.id, keyId))
-        .returning();
-      
-      if (!updated) {
-        return c.json({ error: "API key not found" }, 404);
-      }
-      
-      return c.json({
-        id: updated.id,
-        name: updated.name,
-        description: updated.description,
-        scopes: updated.scopes,
-        isActive: updated.isActive,
-        expiresAt: updated.expiresAt,
-      });
-    } catch (error) {
-      console.error("[API] Error updating API key:", error);
-      return c.json({ error: "Failed to update API key" }, 500);
-    }
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            name: z.string().min(1).max(100).optional(),
+            description: z.string().optional(),
+            scopes: z.array(z.string()).optional(),
+            isActive: z.boolean().optional(),
+            expiresAt: z.string().datetime().nullable().optional(),
+          }),
+        },
+      },
+    },
   },
-);
+  responses: {
+    200: {
+      description: "Success",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    404: {
+      description: "Not found",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+  },
+  tags: ["Admin"],
+});
 
-// DELETE /api/admin/keys/:id - Soft delete (deactivate) key
+app.openapi(updateApiKeyRoute, async (c) => {
+  const keyId = c.req.valid("param").id;
+  const updates = c.req.valid("json");
+  
+  try {
+    const [updated] = await db
+      .update(apiKeys)
+      .set({
+        ...updates,
+        expiresAt: updates.expiresAt ? new Date(updates.expiresAt) : undefined,
+        updatedAt: new Date(),
+      })
+      .where(eq(apiKeys.id, keyId))
+      .returning();
+    
+    if (!updated) {
+      return c.json({ error: "API key not found" }, 404);
+    }
+    
+    return c.json({
+      id: updated.id,
+      name: updated.name,
+      description: updated.description,
+      scopes: updated.scopes,
+      isActive: updated.isActive,
+      expiresAt: updated.expiresAt,
+    });
+  } catch (error) {
+    console.error("[API] Error updating API key:", error);
+    return c.json({ error: "Failed to update API key" }, 500);
+  }
+});
+
 app.delete("/:id", async (c) => {
   const keyId = c.req.param("id");
   
@@ -265,13 +323,11 @@ app.delete("/:id", async (c) => {
   }
 });
 
-// POST /api/admin/keys/:id/rotate - Rotate a key
 app.post("/:id/rotate", async (c) => {
   const keyId = c.req.param("id");
-  const gracePeriod = parseInt(c.req.query("gracePeriod") || "300"); // 5 minutes default
+  const gracePeriod = parseInt(c.req.query("gracePeriod") || "300");
   
   try {
-    // Get existing key
     const existingKey = await db.query.apiKeys.findFirst({
       where: eq(apiKeys.id, keyId),
     });
@@ -285,9 +341,7 @@ app.post("/:id/rotate", async (c) => {
     const newKeyPrefix = getApiKeyPrefix(newApiKey);
     const newKeyHash = hashApiKey(newApiKey);
     
-    // Start transaction
     await db.transaction(async (tx) => {
-      // Set expiration on old key
       await tx
         .update(apiKeys)
         .set({
@@ -296,7 +350,6 @@ app.post("/:id/rotate", async (c) => {
         })
         .where(eq(apiKeys.id, keyId));
       
-      // Create new key
       await tx.insert(apiKeys).values({
         userId: existingKey.userId,
         name: `${existingKey.name} (rotated)`,

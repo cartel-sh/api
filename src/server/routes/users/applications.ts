@@ -1,35 +1,57 @@
-import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { desc, eq, sql } from "drizzle-orm";
 import { db, applications, applicationVotes } from "../../../client";
 import { requireJwtAuth } from "../../middleware/auth";
 
-const app = new Hono();
+const app = new OpenAPIHono();
+const createApplicationRoute = createRoute({
+  method: "post",
+  path: "/",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            messageId: z.string(),
+            walletAddress: z.string(),
+            ensName: z.string().nullable().optional(),
+            github: z.string().nullable().optional(),
+            farcaster: z.string().nullable().optional(),
+            lens: z.string().nullable().optional(),
+            twitter: z.string().nullable().optional(),
+            excitement: z.string(),
+            motivation: z.string(),
+            signature: z.string(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Success",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+  },
+  tags: ["Applications"],
+});
 
-// POST /api/applications
-app.post(
-  "/",
-  zValidator(
-    "json",
-    z.object({
-      messageId: z.string(),
-      walletAddress: z.string(),
-      ensName: z.string().nullable().optional(),
-      github: z.string().nullable().optional(),
-      farcaster: z.string().nullable().optional(),
-      lens: z.string().nullable().optional(),
-      twitter: z.string().nullable().optional(),
-      excitement: z.string(),
-      motivation: z.string(),
-      signature: z.string(),
-    }),
-  ),
-  async (c) => {
+app.openapi(createApplicationRoute, async (c) => {
     const data = c.req.valid("json");
     
     try {
-      // Get next application number
       const result = await db
         .select({
           max: sql<number>`COALESCE(MAX(${applications.applicationNumber}), 0)`,
@@ -38,7 +60,6 @@ app.post(
       
       const nextNumber = (result[0]?.max || 0) + 1;
 
-      // Create application
       const [application] = await db
         .insert(applications)
         .values({
@@ -58,7 +79,6 @@ app.post(
   },
 );
 
-// GET /api/applications/pending
 app.get("/pending", async (c) => {
   try {
     const result = await db
@@ -74,7 +94,6 @@ app.get("/pending", async (c) => {
   }
 });
 
-// GET /api/applications/by-message/:messageId
 app.get("/by-message/:messageId", async (c) => {
   const messageId = c.req.param("messageId");
   
@@ -95,7 +114,6 @@ app.get("/by-message/:messageId", async (c) => {
   }
 });
 
-// GET /api/applications/by-number/:number
 app.get("/by-number/:number", async (c) => {
   const number = parseInt(c.req.param("number"));
   
@@ -120,19 +138,48 @@ app.get("/by-number/:number", async (c) => {
   }
 });
 
-// PATCH /api/applications/:id/status
-app.patch(
-  "/:id/status",
-  requireJwtAuth, // Require authentication to change status
-  zValidator(
-    "json",
-    z.object({
-      status: z.enum(["approved", "rejected"]),
+const updateApplicationStatusRoute = createRoute({
+  method: "patch",
+  path: "/{id}/status",
+  middleware: [requireJwtAuth],
+  request: {
+    params: z.object({
+      id: z.string(),
     }),
-  ),
-  async (c) => {
-    const id = c.req.param("id");
-    const { status } = c.req.valid("json");
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            status: z.enum(["approved", "rejected"]),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Success",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+  },
+  tags: ["Applications"],
+});
+
+app.openapi(updateApplicationStatusRoute, async (c) => {
+  const id = c.req.valid("param").id;
+  const { status } = c.req.valid("json");
     
     try {
       await db
@@ -151,7 +198,6 @@ app.patch(
   },
 );
 
-// DELETE /api/applications/:id
 app.delete("/:id", requireJwtAuth, async (c) => {
   const id = c.req.param("id");
   
@@ -168,19 +214,49 @@ app.delete("/:id", requireJwtAuth, async (c) => {
 });
 
 // POST /api/applications/:id/votes
-app.post(
-  "/:id/votes",
-  zValidator(
-    "json",
-    z.object({
-      userId: z.string(),
-      userName: z.string(),
-      voteType: z.enum(["approve", "reject"]),
+const addVoteRoute = createRoute({
+  method: "post",
+  path: "/{id}/votes",
+  request: {
+    params: z.object({
+      id: z.string(),
     }),
-  ),
-  async (c) => {
-    const applicationId = c.req.param("id");
-    const { userId, userName, voteType } = c.req.valid("json");
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            userId: z.string(),
+            userName: z.string(),
+            voteType: z.enum(["approve", "reject"]),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "Success",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+    500: {
+      description: "Internal server error",
+      content: {
+        "application/json": {
+          schema: z.any(),
+        },
+      },
+    },
+  },
+  tags: ["Applications"],
+});
+
+app.openapi(addVoteRoute, async (c) => {
+  const applicationId = c.req.valid("param").id;
+  const { userId, userName, voteType } = c.req.valid("json");
     
     try {
       await db
@@ -206,8 +282,6 @@ app.post(
     }
   },
 );
-
-// GET /api/applications/:id/votes
 app.get("/:id/votes", async (c) => {
   const applicationId = c.req.param("id");
   

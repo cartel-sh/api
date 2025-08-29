@@ -105,88 +105,28 @@ X-API-Key: <api-key>
 
 **Important:** API keys are required for SIWE verification but do not grant authentication by themselves. JWTs are required for protected routes.
 
-## API Endpoints
+## API Documentation
 
-Public endpoints are accessible without authentication. Protected endpoints require JWT authentication via `Authorization: Bearer <token>` header.
+### Interactive Documentation
+Full API documentation with request/response schemas is available at:
+- **Interactive Docs**: `http://localhost:3003/docs` (when running locally)
+- **OpenAPI Spec**: `http://localhost:3003/openapi.json`
 
-### Health Check
-- `GET /health` - Server health status (public)
+The interactive documentation provides:
+- Complete endpoint descriptions
+- Request/response schemas
+- Authentication requirements
+- Try-it-out functionality
+- Example requests and responses
 
-### Authentication
-- `POST /api/auth/nonce` - Get nonce for SIWE (public)
-- `POST /api/auth/verify` - Verify SIWE signature and get JWT (public)
-- `GET /api/auth/me` - Get current user info (requires JWT)
-
-### Projects
-- `GET /api/projects` - List public projects (public) or all user projects (with JWT)
-- `GET /api/projects/{id}` - Get project details (public if project is public)
-- `POST /api/projects` - Create project (requires JWT)
-- `PATCH /api/projects/{id}` - Update project (requires JWT)
-- `DELETE /api/projects/{id}` - Delete project (requires JWT)
-- `GET /api/projects/user/{userId}` - Get user's projects (public projects only without JWT)
-- `GET /api/projects/tags/popular` - Get popular tags (public)
-
-### API Key Management (Requires JWT + Admin role)
-- `POST /api/admin/keys` - Generate a new API key
-- `GET /api/admin/keys` - List all API keys
-- `GET /api/admin/keys/{keyId}` - Get specific key details
-- `PATCH /api/admin/keys/{keyId}` - Update key (name, description, scopes, active status)
-- `DELETE /api/admin/keys/{keyId}` - Deactivate an API key
-- `POST /api/admin/keys/{keyId}/rotate` - Rotate an API key with grace period
-
-### Discord - Vanishing Channels
-- `GET /api/discord/vanish` - List all vanishing channels
-- `GET /api/discord/vanish?guildId={id}` - List channels for a guild
-- `GET /api/discord/vanish/{channelId}` - Get specific channel
-- `POST /api/discord/vanish` - Create/update vanishing channel
-- `DELETE /api/discord/vanish/{channelId}` - Remove vanishing channel
-- `PATCH /api/discord/vanish/{channelId}/stats` - Update deletion stats
-
-### Discord - Channel Settings
-- `GET /api/discord/channels/{guildId}` - List all channel settings for a guild
-- `GET /api/discord/channels/{guildId}/{key}` - Get specific channel setting (e.g., voice, text, alerts)
-- `PUT /api/discord/channels/{guildId}/{key}` - Create/update channel setting
-- `DELETE /api/discord/channels/{guildId}/{key}` - Delete specific channel setting
-- `DELETE /api/discord/channels/{guildId}` - Delete all channel settings for a guild
-
-### Practice Sessions
-- `POST /api/sessions/practice/start` - Start a practice session (accepts discordId or userId)
-- `POST /api/sessions/practice/stop` - Stop a practice session (accepts discordId or userId)
-- `GET /api/sessions/practice/stats/daily/discord/{discordId}` - Get daily stats by Discord ID
-- `GET /api/sessions/practice/stats/daily/user/{userId}` - Get daily stats by user UUID
-- `GET /api/sessions/practice/stats/weekly/discord/{discordId}` - Get weekly stats by Discord ID
-- `GET /api/sessions/practice/stats/weekly/user/{userId}` - Get weekly stats by user UUID
-- `GET /api/sessions/practice/stats/monthly/discord/{discordId}` - Get monthly stats by Discord ID
-- `GET /api/sessions/practice/stats/monthly/user/{userId}` - Get monthly stats by user UUID
-- `GET /api/sessions/practice/leaderboard` - Get top users leaderboard
-- `GET /api/sessions/practice/total-hours` - Get total tracked hours
-
-### Applications
-- `GET /api/users/applications` - List all applications
-- `GET /api/users/applications/pending` - List pending applications
-- `GET /api/users/applications/by-message/{messageId}` - Get application by message ID
-- `GET /api/users/applications/by-number/{number}` - Get application by number
-- `GET /api/users/applications/{applicationId}` - Get specific application
-- `POST /api/users/applications` - Create application
-- `PATCH /api/users/applications/{applicationId}/status` - Update application status
-- `DELETE /api/users/applications/{applicationId}` - Delete application
-- `POST /api/users/applications/{applicationId}/votes` - Add vote to application
-- `GET /api/users/applications/{applicationId}/votes` - Get application votes
-
-### User Identities
-- `GET /api/users/id/by-evm/{address}` - Get user by Ethereum address
-- `GET /api/users/id/by-lens/{address}` - Get user by Lens handle/address
-- `GET /api/users/id/by-farcaster/{fid}` - Get user by Farcaster FID
-- `GET /api/users/id/by-discord/{discordId}` - Get user by Discord ID
-- `GET /api/users/id/by-telegram/{telegramId}` - Get user by Telegram ID
-- `GET /api/users/identities/{userId}` - Get all identities for a user
-- `POST /api/users/id` - Create user with identity (auto-creates user if needed)
-
-### Admin - Identity Management (Admin Only)
-- `POST /api/admin/identities/connect` - Connect identity to existing user
-- `DELETE /api/admin/identities/disconnect` - Disconnect identity from user
-- `PUT /api/admin/identities/set-primary` - Set identity as primary for user
-- `POST /api/admin/identities/merge-users` - Merge two users by moving identities
+### API Categories
+The API is organized into the following categories:
+- **Authentication** - SIWE verification and session management
+- **Projects** - User project management
+- **Discord** - Discord bot integrations (vanishing channels, settings)
+- **Sessions** - Practice session tracking
+- **Users** - User identity and application management  
+- **Admin** - Administrative operations (requires admin role)
 
 ## Authentication Tutorial (Next.js)
 
