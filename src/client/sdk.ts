@@ -1,4 +1,4 @@
-type UserIdentityLookup = {
+export type UserIdentityLookup = {
 	evm?: string;
 	lens?: string;
 	farcaster?: string;
@@ -21,11 +21,6 @@ export interface RefreshResponse {
 	refreshToken: string;
 	expiresIn: number;
 	tokenType: "Bearer";
-}
-
-export interface SiweVerifyRequest {
-	message: string;
-	signature: string;
 }
 
 export interface TokenStorage {
@@ -105,9 +100,311 @@ class LocalStorageTokenStorage implements TokenStorage {
 	}
 }
 
+class AuthNamespace {
+	constructor(private client: CartelClient) {}
+
+	async verifySiwe(message: string, signature: string): Promise<AuthResponse> {
+		const response = await this.client.request<AuthResponse>("/api/auth/verify", {
+			method: "POST",
+			body: JSON.stringify({ message, signature }),
+			skipAuth: true,
+		});
+
+		this.client.tokenStorage.setTokens(
+			response.accessToken,
+			response.refreshToken,
+			response.expiresIn,
+		);
+
+		return response;
+	}
+
+	async refresh(): Promise<RefreshResponse> {
+		const refreshToken = this.client.tokenStorage.getRefreshToken();
+		
+		if (!refreshToken) {
+			throw new Error("No refresh token available");
+		}
+
+		const response = await this.client.request<RefreshResponse>("/api/auth/refresh", {
+			method: "POST",
+			body: JSON.stringify({ refreshToken }),
+			skipAuth: true,
+		});
+
+		this.client.tokenStorage.setTokens(
+			response.accessToken,
+			response.refreshToken,
+			response.expiresIn,
+		);
+
+		return response;
+	}
+
+	async me() {
+		return this.client.request("/api/auth/me");
+	}
+
+	async revoke() {
+		const response = await this.client.request("/api/auth/revoke", {
+			method: "POST",
+		});
+		
+		this.client.tokenStorage.clearTokens();
+		
+		return response;
+	}
+
+	logout(): void {
+		this.client.tokenStorage.clearTokens();
+	}
+}
+
+class VanishNamespace {
+	constructor(private client: CartelClient) {}
+
+	async create(params: {
+		channelId: string;
+		guildId: string;
+		duration: number;
+	}): Promise<{ success: boolean }> {
+		return this.client.request("/api/vanish/discord", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
+	}
+
+	async remove(channelId: string): Promise<{ success: boolean }> {
+		return this.client.request(`/api/vanish/discord/${channelId}`, {
+			method: "DELETE",
+		});
+	}
+
+	async get(channelId: string): Promise<any>;
+	async get(params?: { guildId?: string }): Promise<any[]>;
+	async get(params?: string | { guildId?: string }) {
+		if (typeof params === "string") {
+			return this.client.request(`/api/vanish/discord/${params}`);
+		}
+		const query = params?.guildId ? `?guildId=${params.guildId}` : "";
+		return this.client.request(`/api/vanish/discord${query}`);
+	}
+
+	async updateStats(
+		channelId: string, 
+		deletedCount: number
+	): Promise<{ success: boolean; newCount: number }> {
+		return this.client.request(`/api/vanish/discord/${channelId}/stats`, {
+			method: "PATCH",
+			body: JSON.stringify({ deletedCount }),
+		});
+	}
+}
+
+class PracticeNamespace {
+	constructor(private client: CartelClient) {}
+
+	async start(params: {
+		discordId?: string;
+		userId?: string;
+		notes?: string;
+	}) {
+		return this.client.request("/api/sessions/practice/start", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
+	}
+
+	async stop(params: { discordId?: string; userId?: string }) {
+		return this.client.request("/api/sessions/practice/stop", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
+	}
+
+	async getStats(type: 'daily', params: { discordId?: string; userId?: string }): Promise<{ totalDuration: number }>;
+	async getStats(type: 'weekly' | 'monthly', params: { discordId?: string; userId?: string }): Promise<Record<string, number>>;
+	async getStats(type: 'total'): Promise<{ totalHours: number }>;
+	async getStats(
+		type: 'daily' | 'weekly' | 'monthly' | 'total',
+		params?: { discordId?: string; userId?: string }
+	) {
+		if (type === 'total') {
+			return this.client.request("/api/sessions/practice/total-hours");
+		}
+
+		if (!params || (!params.discordId && !params.userId)) {
+			throw new Error("Either discordId or userId must be provided for stats");
+		}
+
+		const identifier = params.discordId 
+			? `discord/${params.discordId}` 
+			: `user/${params.userId}`;
+
+		if (type === 'daily') {
+			return this.client.request(`/api/sessions/practice/stats/daily/${identifier}`);
+		} else if (type === 'weekly') {
+			return this.client.request(`/api/sessions/practice/stats/weekly/${identifier}`);
+		} else {
+			return this.client.request(`/api/sessions/practice/stats/monthly/${identifier}`);
+		}
+	}
+
+	async leaderboard(): Promise<Array<{ identity: string; totalDuration: number }>> {
+		return this.client.request("/api/sessions/practice/leaderboard");
+	}
+}
+
+class ApplicationsNamespace {
+	constructor(private client: CartelClient) {}
+
+	async create(params: {
+		messageId: string;
+		guildId: string;
+		channelId: string;
+		applicantId: string;
+		applicantName: string;
+		responses: Record<string, string>;
+		applicationNumber: number;
+	}) {
+		return this.client.request("/api/users/applications", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
+	}
+
+	async getPending() {
+		return this.client.request("/api/users/applications/pending");
+	}
+
+	async getByMessageId(messageId: string) {
+		return this.client.request(`/api/users/applications/message/${messageId}`);
+	}
+
+	async getByNumber(applicationNumber: number) {
+		return this.client.request(`/api/users/applications/number/${applicationNumber}`);
+	}
+
+	async updateStatus(applicationId: string, status: "approved" | "rejected") {
+		return this.client.request(`/api/users/applications/${applicationId}`, {
+			method: "PATCH",
+			body: JSON.stringify({ status }),
+		});
+	}
+
+	async delete(applicationId: string) {
+		return this.client.request(`/api/users/applications/${applicationId}`, {
+			method: "DELETE",
+		});
+	}
+
+	async vote(
+		applicationId: string,
+		params: {
+			userId: string;
+			userName: string;
+			voteType: "approve" | "reject";
+		}
+	) {
+		return this.client.request(`/api/users/applications/${applicationId}/vote`, {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
+	}
+}
+
+class UsersNamespace {
+	constructor(private client: CartelClient) {}
+
+	async getByDiscordId(discordId: string): Promise<{ id: string }> {
+		return this.client.request(`/api/users/id/discord/${discordId}`);
+	}
+
+	async getByIdentity(identity: UserIdentityLookup) {
+		return this.client.request("/api/users/identities/lookup", {
+			method: "POST",
+			body: JSON.stringify(identity),
+		});
+	}
+
+	async addIdentity(params: {
+		userId: string;
+		platform: string;
+		identity: string;
+		isPrimary?: boolean;
+	}) {
+		return this.client.request("/api/users/identities", {
+			method: "POST",
+			body: JSON.stringify({
+				...params,
+				isPrimary: params.isPrimary ?? false,
+			}),
+		});
+	}
+
+	async removeIdentity(userId: string, platform: string, identity: string) {
+		return this.client.request(
+			`/api/users/identities/${userId}/${platform}/${identity}`,
+			{
+				method: "DELETE",
+			},
+		);
+	}
+}
+
+class ProjectsNamespace {
+	constructor(private client: CartelClient) {}
+
+	async create(params: {
+		name: string;
+		description?: string;
+		metadata?: Record<string, any>;
+	}) {
+		return this.client.request("/api/projects", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
+	}
+
+	async get(projectId: string) {
+		return this.client.request(`/api/projects/${projectId}`);
+	}
+
+	async update(
+		projectId: string,
+		params: {
+			name?: string;
+			description?: string;
+			metadata?: Record<string, any>;
+		}
+	) {
+		return this.client.request(`/api/projects/${projectId}`, {
+			method: "PATCH",
+			body: JSON.stringify(params),
+		});
+	}
+
+	async delete(projectId: string) {
+		return this.client.request(`/api/projects/${projectId}`, {
+			method: "DELETE",
+		});
+	}
+
+	async getUserProjects(userId: string) {
+		return this.client.request(`/api/projects/user/${userId}`);
+	}
+}
+
 export class CartelClient {
-	private tokenStorage: TokenStorage;
+	tokenStorage: TokenStorage;
 	private refreshPromise: Promise<void> | null = null;
+
+	auth: AuthNamespace;
+	vanish: VanishNamespace;
+	practice: PracticeNamespace;
+	applications: ApplicationsNamespace;
+	users: UsersNamespace;
+	projects: ProjectsNamespace;
 
 	constructor(
 		private baseUrl: string,
@@ -118,89 +415,17 @@ export class CartelClient {
 			(typeof window !== "undefined" 
 				? new LocalStorageTokenStorage() 
 				: new InMemoryTokenStorage());
+
+		// Initialize namespaces
+		this.auth = new AuthNamespace(this);
+		this.vanish = new VanishNamespace(this);
+		this.practice = new PracticeNamespace(this);
+		this.applications = new ApplicationsNamespace(this);
+		this.users = new UsersNamespace(this);
+		this.projects = new ProjectsNamespace(this);
 	}
 
-	// Authentication Methods
-
-	/**
-	 * Verify SIWE signature and authenticate
-	 * Client should generate SIWE message and get signature from wallet
-	 * @param message - The complete SIWE message that was signed
-	 * @param signature - The signature from the wallet
-	 * @returns Authentication response with tokens
-	 */
-	async verifySiwe(message: string, signature: string): Promise<AuthResponse> {
-		const response = await this.request<AuthResponse>("/api/auth/verify", {
-			method: "POST",
-			body: JSON.stringify({ message, signature }),
-			skipAuth: true, // Don't use bearer token for login
-		});
-
-		this.tokenStorage.setTokens(
-			response.accessToken,
-			response.refreshToken,
-			response.expiresIn,
-		);
-
-		return response;
-	}
-
-	/**
-	 * Refresh access token using refresh token
-	 */
-	async refreshAccessToken(): Promise<RefreshResponse> {
-		const refreshToken = this.tokenStorage.getRefreshToken();
-		
-		if (!refreshToken) {
-			throw new Error("No refresh token available");
-		}
-
-		const response = await this.request<RefreshResponse>("/api/auth/refresh", {
-			method: "POST",
-			body: JSON.stringify({ refreshToken }),
-			skipAuth: true, // Don't use bearer token for refresh
-		});
-
-		// Update stored tokens
-		this.tokenStorage.setTokens(
-			response.accessToken,
-			response.refreshToken,
-			response.expiresIn,
-		);
-
-		return response;
-	}
-
-	/**
-	 * Get current authenticated user info
-	 * Requires valid access token
-	 */
-	async getCurrentUser() {
-		return this.request("/api/auth/me");
-	}
-
-	/**
-	 * Revoke all tokens for the current user
-	 */
-	async revokeTokens() {
-		const response = await this.request("/api/auth/revoke", {
-			method: "POST",
-		});
-		
-		// Clear stored tokens
-		this.tokenStorage.clearTokens();
-		
-		return response;
-	}
-
-	/**
-	 * Clear stored tokens (local logout)
-	 */
-	logout() {
-		this.tokenStorage.clearTokens();
-	}
-
-	private async request<T = any>(
+	async request<T = any>(
 		path: string,
 		options: RequestInit & { skipAuth?: boolean } = {},
 	): Promise<T> {
@@ -225,7 +450,7 @@ export class CartelClient {
 				const refreshToken = this.tokenStorage.getRefreshToken();
 				if (refreshToken && !this.refreshPromise) {
 					// Prevent multiple simultaneous refresh attempts
-					this.refreshPromise = this.refreshAccessToken()
+					this.refreshPromise = this.auth.refresh()
 						.then(() => {
 							this.refreshPromise = null;
 						})
@@ -256,7 +481,7 @@ export class CartelClient {
 			if (response.status === 401 && !options.skipAuth) {
 				const refreshToken = this.tokenStorage.getRefreshToken();
 				if (refreshToken && !this.refreshPromise) {
-					await this.refreshAccessToken();
+					await this.auth.refresh();
 					
 					// Retry the request with new token
 					const newAccessToken = this.tokenStorage.getAccessToken();
@@ -279,206 +504,6 @@ export class CartelClient {
 		}
 
 		return response.json() as Promise<T>;
-	}
-
-	// Vanishing Channels - Discord
-	async setVanishingChannel(
-		channelId: string,
-		guildId: string,
-		duration: number,
-	) {
-		return this.request("/api/vanish/discord", {
-			method: "POST",
-			body: JSON.stringify({ channelId, guildId, duration }),
-		});
-	}
-
-	async removeVanishingChannel(channelId: string) {
-		return this.request(`/api/vanish/discord/${channelId}`, {
-			method: "DELETE",
-		});
-	}
-
-	async getVanishingChannels(guildId?: string) {
-		const params = guildId ? `?guildId=${guildId}` : "";
-		return this.request(`/api/vanish/discord${params}`);
-	}
-
-	async getVanishingChannel(channelId: string) {
-		return this.request(`/api/vanish/discord/${channelId}`);
-	}
-
-	async updateVanishingChannelStats(channelId: string, deletedCount: number) {
-		return this.request(`/api/vanish/discord/${channelId}/stats`, {
-			method: "PATCH",
-			body: JSON.stringify({ deletedCount }),
-		});
-	}
-
-	// Practice Sessions
-	async startSession(params: {
-		discordId?: string;
-		userId?: string;
-		notes?: string;
-	}) {
-		return this.request("/api/sessions/practice", {
-			method: "POST",
-			body: JSON.stringify(params),
-		});
-	}
-
-	async stopSession(params: { discordId?: string; userId?: string }) {
-		return this.request("/api/sessions/practice/stop", {
-			method: "POST",
-			body: JSON.stringify(params),
-		});
-	}
-
-	async getDailyStats(discordId: string): Promise<number> {
-		return this.request(`/api/sessions/practice/stats/daily/${discordId}`);
-	}
-
-	async getWeeklyStats(discordId: string): Promise<Record<string, number>> {
-		return this.request(`/api/sessions/practice/stats/weekly/${discordId}`);
-	}
-
-	// Applications
-	async createApplication(params: {
-		messageId: string;
-		guildId: string;
-		channelId: string;
-		applicantId: string;
-		applicantName: string;
-		responses: Record<string, string>;
-		applicationNumber: number;
-	}) {
-		return this.request<{
-			id: string;
-			messageId: string;
-			guildId: string;
-			channelId: string;
-			applicantId: string;
-			applicantName: string;
-			responses: Record<string, string>;
-			status: string;
-			applicationNumber: number;
-		}>("/api/users/applications", {
-			method: "POST",
-			body: JSON.stringify(params),
-		});
-	}
-
-	async getPendingApplications() {
-		return this.request("/api/users/applications/pending");
-	}
-
-	async getApplicationByMessageId(messageId: string) {
-		return this.request(`/api/users/applications/message/${messageId}`);
-	}
-
-	async getApplicationByNumber(applicationNumber: number) {
-		return this.request(`/api/users/applications/number/${applicationNumber}`);
-	}
-
-	async updateApplicationStatus(
-		applicationId: string,
-		status: "approved" | "rejected",
-	) {
-		return this.request(`/api/users/applications/${applicationId}`, {
-			method: "PATCH",
-			body: JSON.stringify({ status }),
-		});
-	}
-
-	async deleteApplication(applicationId: string) {
-		return this.request(`/api/users/applications/${applicationId}`, {
-			method: "DELETE",
-		});
-	}
-
-	async addVote(
-		applicationId: string,
-		userId: string,
-		userName: string,
-		voteType: "approve" | "reject",
-	) {
-		return this.request(`/api/users/applications/${applicationId}/vote`, {
-			method: "POST",
-			body: JSON.stringify({ userId, userName, voteType }),
-		});
-	}
-
-	// User Identities
-	async getUserByDiscordId(discordId: string): Promise<{ id: string }> {
-		return this.request(`/api/users/id/discord/${discordId}`);
-	}
-
-	async getUserByIdentity(identity: UserIdentityLookup) {
-		return this.request("/api/users/identities/lookup", {
-			method: "POST",
-			body: JSON.stringify(identity),
-		});
-	}
-
-	async addUserIdentity(
-		userId: string,
-		platform: string,
-		identity: string,
-		isPrimary = false,
-	) {
-		return this.request("/api/users/identities", {
-			method: "POST",
-			body: JSON.stringify({ userId, platform, identity, isPrimary }),
-		});
-	}
-
-	async removeUserIdentity(userId: string, platform: string, identity: string) {
-		return this.request(
-			`/api/users/identities/${userId}/${platform}/${identity}`,
-			{
-				method: "DELETE",
-			},
-		);
-	}
-
-	// Projects
-	async createProject(params: {
-		name: string;
-		description?: string;
-		metadata?: Record<string, any>;
-	}) {
-		return this.request("/api/projects", {
-			method: "POST",
-			body: JSON.stringify(params),
-		});
-	}
-
-	async getProject(projectId: string) {
-		return this.request(`/api/projects/${projectId}`);
-	}
-
-	async updateProject(
-		projectId: string,
-		updates: {
-			name?: string;
-			description?: string;
-			metadata?: Record<string, any>;
-		},
-	) {
-		return this.request(`/api/projects/${projectId}`, {
-			method: "PATCH",
-			body: JSON.stringify(updates),
-		});
-	}
-
-	async deleteProject(projectId: string) {
-		return this.request(`/api/projects/${projectId}`, {
-			method: "DELETE",
-		});
-	}
-
-	async getUserProjects(userId: string) {
-		return this.request(`/api/projects/user/${userId}`);
 	}
 }
 
