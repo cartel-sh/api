@@ -10,7 +10,6 @@ import {
 import {
 	createAccessToken,
 	createRefreshToken,
-	generateSecureToken,
 	rotateRefreshToken,
 	revokeAllUserTokens,
 	verifyAccessToken,
@@ -217,7 +216,7 @@ app.openapi(verifyRoute, async (c) => {
 		}
 
 		const accessToken = await createAccessToken(userId, ["read", "write"], clientId);
-		const familyId = generateSecureToken(); // New family for new login
+		const familyId = crypto.randomUUID(); // New family for new login (must be UUID)
 		const refreshToken = await createRefreshToken(userId, familyId, clientId);
 
 		return c.json(
