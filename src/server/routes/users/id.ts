@@ -1,6 +1,11 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq } from "drizzle-orm";
 import { db, userIdentities, users } from "../../../client";
+import {
+	UserSchema,
+	UserIdentitySchema,
+	ErrorResponseSchema,
+} from "../../../shared/schemas";
 
 const app = new OpenAPIHono();
 
@@ -47,9 +52,7 @@ const getUserByEvmRoute = createRoute({
 			description: "User not found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -57,9 +60,7 @@ const getUserByEvmRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -140,9 +141,7 @@ const getUserByLensRoute = createRoute({
 			description: "User not found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -150,9 +149,7 @@ const getUserByLensRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -233,9 +230,7 @@ const getUserByFarcasterRoute = createRoute({
 			description: "User not found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -243,9 +238,7 @@ const getUserByFarcasterRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -325,9 +318,7 @@ const getUserByDiscordRoute = createRoute({
 			description: "User not found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -335,9 +326,7 @@ const getUserByDiscordRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -417,9 +406,7 @@ const getUserByTelegramRoute = createRoute({
 			description: "User not found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -427,9 +414,7 @@ const getUserByTelegramRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -545,9 +530,7 @@ const createIdentityRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},

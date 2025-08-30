@@ -3,6 +3,12 @@ import { db, projects, withUser } from "../../client";
 import type { NewProject, UserRole } from "../../schema";
 import { eq, and, or, desc, ilike, arrayContains, sql } from "drizzle-orm";
 import { requireAuth, withJwtAuth, requireJwtAuth } from "../middleware/auth";
+import {
+	CreateProjectSchema,
+	UpdateProjectSchema,
+	ProjectSchema,
+	ErrorResponseSchema,
+} from "../../shared/schemas";
 
 type Variables = {
 	userId?: string;
@@ -16,16 +22,7 @@ const app = new OpenAPIHono<{ Variables: Variables }>();
 
 app.use("*", withJwtAuth);
 
-const createProjectSchema = z.object({
-	title: z.string().min(1).max(255),
-	description: z.string().min(1),
-	githubUrl: z.string().url().optional().nullable(),
-	deploymentUrl: z.string().url().optional().nullable(),
-	tags: z.array(z.string()).default([]),
-	isPublic: z.boolean().default(true),
-});
-
-const updateProjectSchema = createProjectSchema.partial();
+// Schemas are imported from shared/schemas.ts
 
 const querySchema = z.object({
 	search: z.string().optional(),
@@ -263,7 +260,7 @@ const createProjectRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: createProjectSchema,
+					schema: CreateProjectSchema,
 				},
 			},
 		},
@@ -334,7 +331,7 @@ const updateProjectRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: updateProjectSchema,
+					schema: UpdateProjectSchema,
 				},
 			},
 		},

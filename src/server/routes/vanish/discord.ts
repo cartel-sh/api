@@ -1,7 +1,14 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
 import { db, vanishingChannels } from "../../../client";
-import type { VanishingChannel } from "../../../schema";
+import {
+	CreateVanishingChannelSchema,
+	VanishingChannelSchema,
+	VanishingChannelSuccessSchema,
+	VanishingChannelStatsSchema,
+	ErrorResponseSchema,
+	type VanishingChannel,
+} from "../../../shared/schemas";
 
 const app = new OpenAPIHono();
 const createVanishingChannelRoute = createRoute({
@@ -13,14 +20,7 @@ const createVanishingChannelRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						channelId: z.string().describe("Discord channel ID"),
-						guildId: z.string().describe("Discord guild ID"),
-						duration: z
-							.number()
-							.positive()
-							.describe("Vanish duration in seconds"),
-					}),
+					schema: CreateVanishingChannelSchema,
 				},
 			},
 		},
@@ -30,9 +30,7 @@ const createVanishingChannelRoute = createRoute({
 			description: "Vanishing channel created or updated",
 			content: {
 				"application/json": {
-					schema: z.object({
-						success: z.boolean(),
-					}),
+					schema: VanishingChannelSuccessSchema,
 				},
 			},
 		},
@@ -40,9 +38,7 @@ const createVanishingChannelRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -93,9 +89,7 @@ const deleteVanishingChannelRoute = createRoute({
 			description: "Vanishing channel deleted",
 			content: {
 				"application/json": {
-					schema: z.object({
-						success: z.boolean(),
-					}),
+					schema: VanishingChannelSuccessSchema,
 				},
 			},
 		},
@@ -103,9 +97,7 @@ const deleteVanishingChannelRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -143,17 +135,7 @@ const listVanishingChannelsRoute = createRoute({
 			description: "List of vanishing channels",
 			content: {
 				"application/json": {
-					schema: z.array(
-						z.object({
-							channelId: z.string(),
-							guildId: z.string(),
-							vanishAfter: z.number(),
-							messagesDeleted: z.number(),
-							lastDeletion: z.string().nullable(),
-							createdAt: z.string().nullable(),
-							updatedAt: z.string().nullable(),
-						}),
-					),
+					schema: z.array(VanishingChannelSchema),
 				},
 			},
 		},
@@ -161,9 +143,7 @@ const listVanishingChannelsRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -186,9 +166,13 @@ app.openapi(listVanishingChannelsRoute, async (c) => {
 		}
 
 		const formattedChannels: VanishingChannel[] = channels.map((channel) => ({
-			...channel,
+			channelId: channel.channelId,
+			guildId: channel.guildId,
+			vanishAfter: channel.vanishAfter,
 			messagesDeleted: Number(channel.messagesDeleted) || 0,
-			lastDeletion: channel.lastDeletion || null,
+			lastDeletion: channel.lastDeletion?.toISOString() || null,
+			createdAt: channel.createdAt?.toISOString() || null,
+			updatedAt: channel.updatedAt?.toISOString() || null,
 		}));
 
 		return c.json(formattedChannels, 200);
@@ -213,15 +197,7 @@ const getVanishingChannelRoute = createRoute({
 			description: "Vanishing channel details",
 			content: {
 				"application/json": {
-					schema: z.object({
-						channelId: z.string(),
-						guildId: z.string(),
-						vanishAfter: z.number(),
-						messagesDeleted: z.number(),
-						lastDeletion: z.string().nullable(),
-						createdAt: z.string().nullable(),
-						updatedAt: z.string().nullable(),
-					}),
+					schema: VanishingChannelSchema,
 				},
 			},
 		},
@@ -229,9 +205,7 @@ const getVanishingChannelRoute = createRoute({
 			description: "Channel not found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -239,9 +213,7 @@ const getVanishingChannelRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -262,9 +234,13 @@ app.openapi(getVanishingChannelRoute, async (c) => {
 		}
 
 		const formattedChannel = {
-			...channel,
+			channelId: channel.channelId,
+			guildId: channel.guildId,
+			vanishAfter: channel.vanishAfter,
 			messagesDeleted: Number(channel.messagesDeleted) || 0,
-			lastDeletion: channel.lastDeletion || null,
+			lastDeletion: channel.lastDeletion?.toISOString() || null,
+			createdAt: channel.createdAt?.toISOString() || null,
+			updatedAt: channel.updatedAt?.toISOString() || null,
 		};
 
 		return c.json(formattedChannel, 200);
@@ -298,10 +274,7 @@ const updateChannelStatsRoute = createRoute({
 			description: "Stats updated successfully",
 			content: {
 				"application/json": {
-					schema: z.object({
-						success: z.boolean(),
-						newCount: z.number(),
-					}),
+					schema: VanishingChannelStatsSchema,
 				},
 			},
 		},
@@ -309,9 +282,7 @@ const updateChannelStatsRoute = createRoute({
 			description: "Channel not found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -319,9 +290,7 @@ const updateChannelStatsRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},

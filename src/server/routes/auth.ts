@@ -3,6 +3,12 @@ import { SiweMessage } from "siwe";
 import { db, users, userIdentities, apiKeys } from "../../client";
 import { eq, and, or, isNull, gte } from "drizzle-orm";
 import {
+	AuthResponseSchema,
+	RefreshResponseSchema,
+	SiweVerifyRequestSchema,
+	ErrorResponseSchema,
+} from "../../shared/schemas";
+import {
 	hashApiKey,
 	getApiKeyPrefix,
 	isValidApiKeyFormat,
@@ -34,10 +40,7 @@ const verifyRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						message: z.string().describe("SIWE message string"),
-						signature: z.string().describe("Signature from wallet"),
-					}),
+					schema: SiweVerifyRequestSchema,
 				},
 			},
 		},
@@ -50,15 +53,7 @@ const verifyRoute = createRoute({
 			description: "Successfully authenticated",
 			content: {
 				"application/json": {
-					schema: z.object({
-						accessToken: z.string().describe("JWT access token"),
-						refreshToken: z.string().describe("Refresh token for getting new access tokens"),
-						expiresIn: z.number().describe("Access token expiry in seconds"),
-						tokenType: z.literal("Bearer"),
-						userId: z.string(),
-						address: z.string(),
-						clientName: z.string().optional(),
-					}),
+					schema: AuthResponseSchema,
 				},
 			},
 		},
@@ -66,8 +61,7 @@ const verifyRoute = createRoute({
 			description: "Bad request",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
+					schema: ErrorResponseSchema.extend({
 						message: z.string().optional(),
 					}),
 				},
@@ -77,9 +71,7 @@ const verifyRoute = createRoute({
 			description: "Unauthorized",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -87,9 +79,7 @@ const verifyRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -258,12 +248,7 @@ const refreshRoute = createRoute({
 			description: "Successfully refreshed tokens",
 			content: {
 				"application/json": {
-					schema: z.object({
-						accessToken: z.string(),
-						refreshToken: z.string(),
-						expiresIn: z.number(),
-						tokenType: z.literal("Bearer"),
-					}),
+					schema: RefreshResponseSchema,
 				},
 			},
 		},
@@ -271,9 +256,7 @@ const refreshRoute = createRoute({
 			description: "Invalid or expired refresh token",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -328,9 +311,7 @@ const getMeRoute = createRoute({
 			description: "Not authenticated or invalid token",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -338,9 +319,7 @@ const getMeRoute = createRoute({
 			description: "User not found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -414,9 +393,7 @@ const revokeRoute = createRoute({
 			description: "Not authenticated",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},

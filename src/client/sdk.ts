@@ -1,27 +1,27 @@
-export type UserIdentityLookup = {
-	evm?: string;
-	lens?: string;
-	farcaster?: string;
-	telegram?: string;
-	discord?: string;
-};
+import type {
+	AuthResponse,
+	RefreshResponse,
+	UserIdentityLookup,
+	VanishingChannelSuccess,
+	VanishingChannelStats,
+	VanishingChannel,
+	PracticeSession,
+	PracticeStats,
+	PracticeTotalHours,
+	PracticeLeaderboardEntry,
+	Application,
+	ApplicationVote,
+	User,
+	UserIdentity,
+	Project,
+	SuccessResponse,
+} from "../shared/schemas";
 
-export interface AuthResponse {
-	accessToken: string;
-	refreshToken: string;
-	expiresIn: number;
-	tokenType: "Bearer";
-	userId: string;
-	address: string;
-	clientName?: string;
-}
-
-export interface RefreshResponse {
-	accessToken: string;
-	refreshToken: string;
-	expiresIn: number;
-	tokenType: "Bearer";
-}
+export type {
+	AuthResponse,
+	RefreshResponse,
+	UserIdentityLookup,
+} from "../shared/schemas";
 
 export interface TokenStorage {
 	getAccessToken(): string | null;
@@ -141,12 +141,12 @@ class AuthNamespace {
 		return response;
 	}
 
-	async me() {
-		return this.client.request("/api/auth/me");
+	async me(): Promise<User> {
+		return this.client.request<User>("/api/auth/me");
 	}
 
-	async revoke() {
-		const response = await this.client.request("/api/auth/revoke", {
+	async revoke(): Promise<SuccessResponse> {
+		const response = await this.client.request<SuccessResponse>("/api/auth/revoke", {
 			method: "POST",
 		});
 		
@@ -167,34 +167,34 @@ class VanishNamespace {
 		channelId: string;
 		guildId: string;
 		duration: number;
-	}): Promise<{ success: boolean }> {
-		return this.client.request("/api/vanish/discord", {
+	}): Promise<VanishingChannelSuccess> {
+		return this.client.request<VanishingChannelSuccess>("/api/vanish/discord", {
 			method: "POST",
 			body: JSON.stringify(params),
 		});
 	}
 
-	async remove(channelId: string): Promise<{ success: boolean }> {
-		return this.client.request(`/api/vanish/discord/${channelId}`, {
+	async remove(channelId: string): Promise<VanishingChannelSuccess> {
+		return this.client.request<VanishingChannelSuccess>(`/api/vanish/discord/${channelId}`, {
 			method: "DELETE",
 		});
 	}
 
-	async get(channelId: string): Promise<any>;
-	async get(params?: { guildId?: string }): Promise<any[]>;
-	async get(params?: string | { guildId?: string }) {
+	async get(channelId: string): Promise<VanishingChannel>;
+	async get(params?: { guildId?: string }): Promise<VanishingChannel[]>;
+	async get(params?: string | { guildId?: string }): Promise<VanishingChannel | VanishingChannel[]> {
 		if (typeof params === "string") {
-			return this.client.request(`/api/vanish/discord/${params}`);
+			return this.client.request<VanishingChannel>(`/api/vanish/discord/${params}`);
 		}
 		const query = params?.guildId ? `?guildId=${params.guildId}` : "";
-		return this.client.request(`/api/vanish/discord${query}`);
+		return this.client.request<VanishingChannel[]>(`/api/vanish/discord${query}`);
 	}
 
 	async updateStats(
 		channelId: string, 
 		deletedCount: number
-	): Promise<{ success: boolean; newCount: number }> {
-		return this.client.request(`/api/vanish/discord/${channelId}/stats`, {
+	): Promise<VanishingChannelStats> {
+		return this.client.request<VanishingChannelStats>(`/api/vanish/discord/${channelId}/stats`, {
 			method: "PATCH",
 			body: JSON.stringify({ deletedCount }),
 		});
@@ -208,29 +208,32 @@ class PracticeNamespace {
 		discordId?: string;
 		userId?: string;
 		notes?: string;
-	}) {
-		return this.client.request("/api/sessions/practice/start", {
+	}): Promise<PracticeSession> {
+		return this.client.request<PracticeSession>("/api/sessions/practice/start", {
 			method: "POST",
 			body: JSON.stringify(params),
 		});
 	}
 
-	async stop(params: { discordId?: string; userId?: string }) {
-		return this.client.request("/api/sessions/practice/stop", {
+	async stop(params: { 
+		discordId?: string; 
+		userId?: string 
+	}): Promise<PracticeSession> {
+		return this.client.request<PracticeSession>("/api/sessions/practice/stop", {
 			method: "POST",
 			body: JSON.stringify(params),
 		});
 	}
 
-	async getStats(type: 'daily', params: { discordId?: string; userId?: string }): Promise<{ totalDuration: number }>;
+	async getStats(type: 'daily', params: { discordId?: string; userId?: string }): Promise<PracticeStats>;
 	async getStats(type: 'weekly' | 'monthly', params: { discordId?: string; userId?: string }): Promise<Record<string, number>>;
-	async getStats(type: 'total'): Promise<{ totalHours: number }>;
+	async getStats(type: 'total'): Promise<PracticeTotalHours>;
 	async getStats(
 		type: 'daily' | 'weekly' | 'monthly' | 'total',
 		params?: { discordId?: string; userId?: string }
-	) {
+	): Promise<PracticeStats | Record<string, number> | PracticeTotalHours> {
 		if (type === 'total') {
-			return this.client.request("/api/sessions/practice/total-hours");
+			return this.client.request<PracticeTotalHours>("/api/sessions/practice/total-hours");
 		}
 
 		if (!params || (!params.discordId && !params.userId)) {
@@ -242,16 +245,22 @@ class PracticeNamespace {
 			: `user/${params.userId}`;
 
 		if (type === 'daily') {
-			return this.client.request(`/api/sessions/practice/stats/daily/${identifier}`);
+			return this.client.request<PracticeStats>(
+				`/api/sessions/practice/stats/daily/${identifier}`
+			);
 		} else if (type === 'weekly') {
-			return this.client.request(`/api/sessions/practice/stats/weekly/${identifier}`);
+			return this.client.request<Record<string, number>>(
+				`/api/sessions/practice/stats/weekly/${identifier}`
+			);
 		} else {
-			return this.client.request(`/api/sessions/practice/stats/monthly/${identifier}`);
+			return this.client.request<Record<string, number>>(
+				`/api/sessions/practice/stats/monthly/${identifier}`
+			);
 		}
 	}
 
-	async leaderboard(): Promise<Array<{ identity: string; totalDuration: number }>> {
-		return this.client.request("/api/sessions/practice/leaderboard");
+	async leaderboard(): Promise<PracticeLeaderboardEntry[]> {
+		return this.client.request<PracticeLeaderboardEntry[]>("/api/sessions/practice/leaderboard");
 	}
 }
 
@@ -266,34 +275,34 @@ class ApplicationsNamespace {
 		applicantName: string;
 		responses: Record<string, string>;
 		applicationNumber: number;
-	}) {
-		return this.client.request("/api/users/applications", {
+	}): Promise<Application> {
+		return this.client.request<Application>("/api/users/applications", {
 			method: "POST",
 			body: JSON.stringify(params),
 		});
 	}
 
-	async getPending() {
-		return this.client.request("/api/users/applications/pending");
+	async getPending(): Promise<Application[]> {
+		return this.client.request<Application[]>("/api/users/applications/pending");
 	}
 
-	async getByMessageId(messageId: string) {
-		return this.client.request(`/api/users/applications/message/${messageId}`);
+	async getByMessageId(messageId: string): Promise<Application> {
+		return this.client.request<Application>(`/api/users/applications/message/${messageId}`);
 	}
 
-	async getByNumber(applicationNumber: number) {
-		return this.client.request(`/api/users/applications/number/${applicationNumber}`);
+	async getByNumber(applicationNumber: number): Promise<Application> {
+		return this.client.request<Application>(`/api/users/applications/number/${applicationNumber}`);
 	}
 
-	async updateStatus(applicationId: string, status: "approved" | "rejected") {
-		return this.client.request(`/api/users/applications/${applicationId}`, {
+	async updateStatus(applicationId: string, status: "approved" | "rejected"): Promise<Application> {
+		return this.client.request<Application>(`/api/users/applications/${applicationId}`, {
 			method: "PATCH",
 			body: JSON.stringify({ status }),
 		});
 	}
 
-	async delete(applicationId: string) {
-		return this.client.request(`/api/users/applications/${applicationId}`, {
+	async delete(applicationId: string): Promise<SuccessResponse> {
+		return this.client.request<SuccessResponse>(`/api/users/applications/${applicationId}`, {
 			method: "DELETE",
 		});
 	}
@@ -305,8 +314,8 @@ class ApplicationsNamespace {
 			userName: string;
 			voteType: "approve" | "reject";
 		}
-	) {
-		return this.client.request(`/api/users/applications/${applicationId}/vote`, {
+	): Promise<ApplicationVote> {
+		return this.client.request<ApplicationVote>(`/api/users/applications/${applicationId}/vote`, {
 			method: "POST",
 			body: JSON.stringify(params),
 		});
@@ -317,11 +326,11 @@ class UsersNamespace {
 	constructor(private client: CartelClient) {}
 
 	async getByDiscordId(discordId: string): Promise<{ id: string }> {
-		return this.client.request(`/api/users/id/discord/${discordId}`);
+		return this.client.request<{ id: string }>(`/api/users/id/discord/${discordId}`);
 	}
 
-	async getByIdentity(identity: UserIdentityLookup) {
-		return this.client.request("/api/users/identities/lookup", {
+	async getByIdentity(identity: UserIdentityLookup): Promise<User> {
+		return this.client.request<User>("/api/users/identities/lookup", {
 			method: "POST",
 			body: JSON.stringify(identity),
 		});
@@ -332,8 +341,8 @@ class UsersNamespace {
 		platform: string;
 		identity: string;
 		isPrimary?: boolean;
-	}) {
-		return this.client.request("/api/users/identities", {
+	}): Promise<UserIdentity> {
+		return this.client.request<UserIdentity>("/api/users/identities", {
 			method: "POST",
 			body: JSON.stringify({
 				...params,
@@ -342,8 +351,8 @@ class UsersNamespace {
 		});
 	}
 
-	async removeIdentity(userId: string, platform: string, identity: string) {
-		return this.client.request(
+	async removeIdentity(userId: string, platform: string, identity: string): Promise<SuccessResponse> {
+		return this.client.request<SuccessResponse>(
 			`/api/users/identities/${userId}/${platform}/${identity}`,
 			{
 				method: "DELETE",
@@ -359,15 +368,15 @@ class ProjectsNamespace {
 		name: string;
 		description?: string;
 		metadata?: Record<string, any>;
-	}) {
-		return this.client.request("/api/projects", {
+	}): Promise<Project> {
+		return this.client.request<Project>("/api/projects", {
 			method: "POST",
 			body: JSON.stringify(params),
 		});
 	}
 
-	async get(projectId: string) {
-		return this.client.request(`/api/projects/${projectId}`);
+	async get(projectId: string): Promise<Project> {
+		return this.client.request<Project>(`/api/projects/${projectId}`);
 	}
 
 	async update(
@@ -377,21 +386,21 @@ class ProjectsNamespace {
 			description?: string;
 			metadata?: Record<string, any>;
 		}
-	) {
-		return this.client.request(`/api/projects/${projectId}`, {
+	): Promise<Project> {
+		return this.client.request<Project>(`/api/projects/${projectId}`, {
 			method: "PATCH",
 			body: JSON.stringify(params),
 		});
 	}
 
-	async delete(projectId: string) {
-		return this.client.request(`/api/projects/${projectId}`, {
+	async delete(projectId: string): Promise<SuccessResponse> {
+		return this.client.request<SuccessResponse>(`/api/projects/${projectId}`, {
 			method: "DELETE",
 		});
 	}
 
-	async getUserProjects(userId: string) {
-		return this.client.request(`/api/projects/user/${userId}`);
+	async getUserProjects(userId: string): Promise<Project[]> {
+		return this.client.request<Project[]>(`/api/projects/user/${userId}`);
 	}
 }
 

@@ -1,6 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
 import { db, userIdentities } from "../../../client";
+import {
+	UserIdentitySchema,
+	ErrorResponseSchema,
+} from "../../../shared/schemas";
 
 const app = new OpenAPIHono();
 const getUserIdentitiesRoute = createRoute({
@@ -19,16 +23,7 @@ const getUserIdentitiesRoute = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						identities: z.array(
-							z.object({
-								userId: z.string(),
-								identity: z.string(),
-								platform: z.string(),
-								isPrimary: z.boolean(),
-								createdAt: z.string().nullable(),
-								updatedAt: z.string().nullable(),
-							}),
-						),
+						identities: z.array(UserIdentitySchema),
 					}),
 				},
 			},
@@ -37,9 +32,7 @@ const getUserIdentitiesRoute = createRoute({
 			description: "No identities found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -47,9 +40,7 @@ const getUserIdentitiesRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},

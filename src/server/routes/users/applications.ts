@@ -2,6 +2,12 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { desc, eq, sql } from "drizzle-orm";
 import { db, applications, applicationVotes } from "../../../client";
 import { requireJwtAuth } from "../../middleware/auth";
+import {
+	CreateApplicationSchema,
+	ApplicationSchema,
+	ApplicationVoteSchema,
+	ErrorResponseSchema,
+} from "../../../shared/schemas";
 
 const app = new OpenAPIHono();
 const createApplicationRoute = createRoute({
@@ -13,18 +19,7 @@ const createApplicationRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						messageId: z.string(),
-						walletAddress: z.string(),
-						ensName: z.string().nullable().optional(),
-						github: z.string().nullable().optional(),
-						farcaster: z.string().nullable().optional(),
-						lens: z.string().nullable().optional(),
-						twitter: z.string().nullable().optional(),
-						excitement: z.string(),
-						motivation: z.string(),
-						signature: z.string(),
-					}),
+					schema: CreateApplicationSchema,
 				},
 			},
 		},
@@ -45,9 +40,7 @@ const createApplicationRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -95,7 +88,7 @@ const getPendingApplicationsRoute = createRoute({
 			description: "List of pending applications",
 			content: {
 				"application/json": {
-					schema: z.array(z.any()),
+					schema: z.array(ApplicationSchema),
 				},
 			},
 		},
@@ -103,9 +96,7 @@ const getPendingApplicationsRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -121,7 +112,14 @@ app.openapi(getPendingApplicationsRoute, async (c) => {
 			.where(eq(applications.status, "pending"))
 			.orderBy(desc(applications.submittedAt));
 
-		return c.json(result, 200);
+		const formattedResult = result.map(app => ({
+			...app,
+			status: app.status || "pending",
+			submittedAt: app.submittedAt?.toISOString(),
+			decidedAt: app.decidedAt?.toISOString() || null,
+		}));
+
+		return c.json(formattedResult, 200);
 	} catch (error) {
 		console.error("[API] Error getting pending applications:", error);
 		return c.json({ error: "Failed to get pending applications" }, 500);
@@ -143,23 +141,7 @@ const getApplicationByMessageRoute = createRoute({
 			description: "Application found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						id: z.string(),
-						messageId: z.string(),
-						walletAddress: z.string(),
-						ensName: z.string().nullable(),
-						github: z.string().nullable(),
-						farcaster: z.string().nullable(),
-						lens: z.string().nullable(),
-						twitter: z.string().nullable(),
-						excitement: z.string(),
-						motivation: z.string(),
-						signature: z.string(),
-						applicationNumber: z.number(),
-						status: z.string().nullable(),
-						submittedAt: z.string().datetime().nullable(),
-						decidedAt: z.string().datetime().nullable(),
-					}),
+					schema: ApplicationSchema,
 				},
 			},
 		},
@@ -167,9 +149,7 @@ const getApplicationByMessageRoute = createRoute({
 			description: "Application not found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -177,9 +157,7 @@ const getApplicationByMessageRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -214,8 +192,8 @@ app.openapi(getApplicationByMessageRoute, async (c) => {
 			motivation: application.motivation,
 			signature: application.signature,
 			applicationNumber: application.applicationNumber,
-			status: application.status || null,
-			submittedAt: application.submittedAt?.toISOString() || null,
+			status: application.status || "pending",
+			submittedAt: application.submittedAt?.toISOString() || undefined,
 			decidedAt: application.decidedAt?.toISOString() || null,
 		}, 200);
 	} catch (error) {
@@ -239,7 +217,7 @@ const getApplicationByNumberRoute = createRoute({
 			description: "Application found",
 			content: {
 				"application/json": {
-					schema: z.any(),
+					schema: ApplicationSchema,
 				},
 			},
 		},
@@ -247,9 +225,7 @@ const getApplicationByNumberRoute = createRoute({
 			description: "Invalid application number",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -257,9 +233,7 @@ const getApplicationByNumberRoute = createRoute({
 			description: "Application not found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -267,9 +241,7 @@ const getApplicationByNumberRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -305,8 +277,8 @@ app.openapi(getApplicationByNumberRoute, async (c) => {
 			motivation: application.motivation,
 			signature: application.signature,
 			applicationNumber: application.applicationNumber,
-			status: application.status || null,
-			submittedAt: application.submittedAt?.toISOString() || null,
+			status: application.status || "pending",
+			submittedAt: application.submittedAt?.toISOString() || undefined,
 			decidedAt: application.decidedAt?.toISOString() || null,
 		}, 200);
 	} catch (error) {
@@ -350,9 +322,7 @@ const updateApplicationStatusRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -406,9 +376,7 @@ const deleteApplicationRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -466,9 +434,7 @@ const addVoteRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -531,9 +497,7 @@ const getApplicationVotesRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},

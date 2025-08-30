@@ -2,8 +2,16 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, desc, eq, gte, isNull, lte, sql as sqlExpr } from "drizzle-orm";
 import { DateTime } from "luxon";
 import { db, practiceSessions, userIdentities, users } from "../../../client";
-import type { PracticeSession } from "../../../schema";
 import { getUserByDiscordId } from "../../utils";
+import {
+	StartPracticeSessionSchema,
+	StopPracticeSessionSchema,
+	PracticeSessionSchema,
+	PracticeStatsSchema,
+	PracticeTotalHoursSchema,
+	PracticeLeaderboardEntrySchema,
+	ErrorResponseSchema,
+} from "../../../shared/schemas";
 
 const app = new OpenAPIHono();
 
@@ -16,15 +24,7 @@ const startPracticeSessionRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z
-						.object({
-							discordId: z.string().optional(),
-							userId: z.string().uuid().optional(),
-							notes: z.string().optional(),
-						})
-						.refine((data) => data.discordId || data.userId, {
-							message: "Either discordId or userId must be provided",
-						}),
+					schema: StartPracticeSessionSchema,
 				},
 			},
 		},
@@ -34,15 +34,7 @@ const startPracticeSessionRoute = createRoute({
 			description: "Practice session started or existing session returned",
 			content: {
 				"application/json": {
-					schema: z.object({
-						id: z.string(),
-						userId: z.string(),
-						startTime: z.string(),
-						endTime: z.string().nullable(),
-						duration: z.number().nullable(),
-						date: z.string(),
-						notes: z.string().nullable(),
-					}),
+					schema: PracticeSessionSchema,
 				},
 			},
 		},
@@ -50,9 +42,7 @@ const startPracticeSessionRoute = createRoute({
 			description: "Bad request",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -60,9 +50,7 @@ const startPracticeSessionRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -144,14 +132,7 @@ const stopPracticeSessionRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z
-						.object({
-							discordId: z.string().optional(),
-							userId: z.string().uuid().optional(),
-						})
-						.refine((data) => data.discordId || data.userId, {
-							message: "Either discordId or userId must be provided",
-						}),
+					schema: StopPracticeSessionSchema,
 				},
 			},
 		},
@@ -161,15 +142,7 @@ const stopPracticeSessionRoute = createRoute({
 			description: "Practice session stopped",
 			content: {
 				"application/json": {
-					schema: z.object({
-						id: z.string(),
-						userId: z.string(),
-						startTime: z.string(),
-						endTime: z.string().nullable(),
-						duration: z.number().nullable(),
-						date: z.string(),
-						notes: z.string().nullable(),
-					}),
+					schema: PracticeSessionSchema,
 				},
 			},
 		},
@@ -177,9 +150,7 @@ const stopPracticeSessionRoute = createRoute({
 			description: "Bad request",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -187,9 +158,7 @@ const stopPracticeSessionRoute = createRoute({
 			description: "No active session found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -197,9 +166,7 @@ const stopPracticeSessionRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -281,9 +248,7 @@ const getDailyStatsDiscordRoute = createRoute({
 			description: "Daily practice statistics",
 			content: {
 				"application/json": {
-					schema: z.object({
-						totalDuration: z.number(),
-					}),
+					schema: PracticeStatsSchema,
 				},
 			},
 		},
@@ -291,9 +256,7 @@ const getDailyStatsDiscordRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -343,9 +306,7 @@ const getDailyStatsUserRoute = createRoute({
 			description: "Daily practice statistics",
 			content: {
 				"application/json": {
-					schema: z.object({
-						totalDuration: z.number(),
-					}),
+					schema: PracticeStatsSchema,
 				},
 			},
 		},
@@ -353,9 +314,7 @@ const getDailyStatsUserRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -412,9 +371,7 @@ const getWeeklyStatsDiscordRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -489,9 +446,7 @@ const getWeeklyStatsUserRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -565,9 +520,7 @@ const getMonthlyStatsDiscordRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -642,9 +595,7 @@ const getMonthlyStatsUserRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -705,12 +656,7 @@ const getLeaderboardRoute = createRoute({
 			description: "Top users by practice duration",
 			content: {
 				"application/json": {
-					schema: z.array(
-						z.object({
-							identity: z.string(),
-							totalDuration: z.number(),
-						}),
-					),
+					schema: z.array(PracticeLeaderboardEntrySchema),
 				},
 			},
 		},
@@ -718,9 +664,7 @@ const getLeaderboardRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -770,9 +714,7 @@ const getTotalHoursRoute = createRoute({
 			description: "Total practice hours",
 			content: {
 				"application/json": {
-					schema: z.object({
-						totalHours: z.number(),
-					}),
+					schema: PracticeTotalHoursSchema,
 				},
 			},
 		},
@@ -780,9 +722,7 @@ const getTotalHoursRoute = createRoute({
 			description: "Internal server error",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
