@@ -1,7 +1,5 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
-import { getCookie, setCookie, deleteCookie } from "hono/cookie";
 import { SiweMessage } from "siwe";
-import jwt from "jsonwebtoken";
 import { db, users, userIdentities, apiKeys } from "../../client";
 import { eq, and, or, isNull, gte } from "drizzle-orm";
 import {
@@ -9,6 +7,14 @@ import {
 	getApiKeyPrefix,
 	isValidApiKeyFormat,
 } from "../utils/crypto";
+import {
+	createAccessToken,
+	createRefreshToken,
+	generateSecureToken,
+	rotateRefreshToken,
+	revokeAllUserTokens,
+	verifyAccessToken,
+} from "../utils/tokens";
 
 type Variables = {
 	userId?: string;
@@ -20,16 +26,10 @@ type Variables = {
 
 const app = new OpenAPIHono<{ Variables: Variables }>();
 
-const JWT_SECRET =
-	process.env.JWT_SECRET ||
-	Bun.env.JWT_SECRET ||
-	"development-secret-key-change-this-in-production-minimum-32-chars";
-const JWT_EXPIRY = "7d";
-
 const verifyRoute = createRoute({
 	method: "post",
 	path: "/verify",
-	description: "Verify SIWE (Sign-In with Ethereum) message and signature to authenticate user",
+	description: "Verify SIWE (Sign-In with Ethereum) message and signature to authenticate user. Returns JWT access token and refresh token for API authentication.",
 	summary: "Authenticate with SIWE",
 	request: {
 		body: {
@@ -52,10 +52,13 @@ const verifyRoute = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
+						accessToken: z.string().describe("JWT access token"),
+						refreshToken: z.string().describe("Refresh token for getting new access tokens"),
+						expiresIn: z.number().describe("Access token expiry in seconds"),
+						tokenType: z.literal("Bearer"),
 						userId: z.string(),
 						address: z.string(),
 						clientName: z.string().optional(),
-						message: z.string(),
 					}),
 				},
 			},
@@ -137,6 +140,7 @@ app.openapi(verifyRoute, async (c) => {
 			.execute()
 			.catch(console.error);
 
+		// Validate allowed origins
 		if (allowedOrigins.length > 0) {
 			const isValidOrigin = allowedOrigins.some((origin) => {
 				if (siweMessage.domain === origin) return true;
@@ -159,6 +163,7 @@ app.openapi(verifyRoute, async (c) => {
 			}
 		}
 
+		// Validate message timestamps
 		if (siweMessage.expirationTime) {
 			const expiry = new Date(siweMessage.expirationTime);
 			if (expiry < now) {
@@ -172,6 +177,7 @@ app.openapi(verifyRoute, async (c) => {
 			}
 		}
 
+		// Verify signature
 		const result = await siweMessage.verify({ signature });
 
 		if (!result.success) {
@@ -180,6 +186,7 @@ app.openapi(verifyRoute, async (c) => {
 
 		const address = siweMessage.address.toLowerCase();
 
+		// Find or create user
 		let identity = await db.query.userIdentities.findFirst({
 			where: and(
 				eq(userIdentities.platform, "evm"),
@@ -209,32 +216,19 @@ app.openapi(verifyRoute, async (c) => {
 			userId = identity.userId;
 		}
 
-		const token = jwt.sign(
-			{
-				userId,
-				address,
-				clientId,
-				clientName,
-				iat: Math.floor(Date.now() / 1000),
-			},
-			JWT_SECRET,
-			{ expiresIn: JWT_EXPIRY },
-		);
-
-		setCookie(c, "cartel-seal", token, {
-			httpOnly: true,
-			secure: process.env.NODE_ENV === "production",
-			sameSite: "Lax",
-			maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
-			path: "/",
-		});
+		const accessToken = await createAccessToken(userId, ["read", "write"], clientId);
+		const familyId = generateSecureToken(); // New family for new login
+		const refreshToken = await createRefreshToken(userId, familyId, clientId);
 
 		return c.json(
 			{
+				accessToken: accessToken.token,
+				refreshToken: refreshToken.token,
+				expiresIn: accessToken.expiresIn,
+				tokenType: "Bearer" as const,
 				userId,
 				address,
 				clientName,
-				message: "Successfully authenticated",
 			},
 			200,
 		);
@@ -244,10 +238,74 @@ app.openapi(verifyRoute, async (c) => {
 	}
 });
 
+const refreshRoute = createRoute({
+	method: "post",
+	path: "/refresh",
+	description: "Exchange a refresh token for new access and refresh tokens. Implements token rotation for security - the old refresh token is invalidated.",
+	summary: "Refresh access token",
+	request: {
+		body: {
+			content: {
+				"application/json": {
+					schema: z.object({
+						refreshToken: z.string().describe("The refresh token"),
+					}),
+				},
+			},
+		},
+	},
+	responses: {
+		200: {
+			description: "Successfully refreshed tokens",
+			content: {
+				"application/json": {
+					schema: z.object({
+						accessToken: z.string(),
+						refreshToken: z.string(),
+						expiresIn: z.number(),
+						tokenType: z.literal("Bearer"),
+					}),
+				},
+			},
+		},
+		401: {
+			description: "Invalid or expired refresh token",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
+	},
+	tags: ["Authentication"],
+});
+
+app.openapi(refreshRoute, async (c) => {
+	const { refreshToken } = c.req.valid("json");
+
+	const result = await rotateRefreshToken(refreshToken);
+
+	if (!result) {
+		return c.json({ error: "Invalid or expired refresh token" }, 401);
+	}
+
+	return c.json(
+		{
+			accessToken: result.accessToken,
+			refreshToken: result.refreshToken,
+			expiresIn: result.expiresIn,
+			tokenType: "Bearer" as const,
+		},
+		200,
+	);
+});
+
 const getMeRoute = createRoute({
 	method: "get",
 	path: "/me",
-	description: "Retrieve information about the currently authenticated user",
+	description: "Retrieve information about the currently authenticated user. Requires a valid bearer token in the Authorization header.",
 	summary: "Get current user",
 	security: [
 		{
@@ -261,8 +319,9 @@ const getMeRoute = createRoute({
 				"application/json": {
 					schema: z.object({
 						userId: z.string(),
-						address: z.string(),
+						address: z.string().optional(),
 						user: z.any(),
+						scopes: z.array(z.string()),
 					}),
 				},
 			},
@@ -292,53 +351,60 @@ const getMeRoute = createRoute({
 });
 
 app.openapi(getMeRoute, async (c) => {
-	const token =
-		getCookie(c, "cartel-seal") ||
-		(c.req.header("Authorization")?.startsWith("Bearer ")
-			? c.req.header("Authorization")!.slice(7)
-			: null);
-
-	if (!token) {
+	const authHeader = c.req.header("Authorization");
+	
+	if (!authHeader?.startsWith("Bearer ")) {
 		return c.json({ error: "Not authenticated" }, 401);
 	}
 
-	try {
-		const payload = jwt.verify(token, JWT_SECRET) as any;
+	const token = authHeader.slice(7);
+	const payload = verifyAccessToken(token);
 
-		const user = await db.query.users.findFirst({
-			where: eq(users.id, payload.userId),
-			with: {
-				identities: {
-					where: eq(userIdentities.platform, "evm"),
-				},
-			},
-		});
-
-		if (!user) {
-			return c.json({ error: "User not found" }, 404);
-		}
-
-		return c.json(
-			{
-				userId: payload.userId,
-				address: payload.address,
-				user,
-			},
-			200,
-		);
-	} catch (error) {
+	if (!payload) {
 		return c.json({ error: "Invalid or expired token" }, 401);
 	}
+
+	const user = await db.query.users.findFirst({
+		where: eq(users.id, payload.userId),
+		with: {
+			identities: {
+				where: eq(userIdentities.platform, "evm"),
+			},
+		},
+	});
+
+	if (!user) {
+		return c.json({ error: "User not found" }, 404);
+	}
+
+	// Get primary EVM address if exists
+	const primaryIdentity = user.identities.find(i => i.isPrimary);
+	const address = primaryIdentity?.identity;
+
+	return c.json(
+		{
+			userId: payload.userId,
+			address,
+			user,
+			scopes: payload.scopes,
+		},
+		200,
+	);
 });
 
-const logoutRoute = createRoute({
+const revokeRoute = createRoute({
 	method: "post",
-	path: "/logout",
-	description: "Logout the current user by clearing authentication cookies",
-	summary: "Logout user",
+	path: "/revoke",
+	description: "Revoke all refresh tokens for the authenticated user. Useful for logout across all devices or when tokens may be compromised. Requires a valid bearer token.",
+	summary: "Revoke all tokens",
+	security: [
+		{
+			bearerAuth: [],
+		},
+	],
 	responses: {
 		200: {
-			description: "Successfully logged out",
+			description: "Successfully revoked tokens",
 			content: {
 				"application/json": {
 					schema: z.object({
@@ -347,16 +413,38 @@ const logoutRoute = createRoute({
 				},
 			},
 		},
+		401: {
+			description: "Not authenticated",
+			content: {
+				"application/json": {
+					schema: z.object({
+						error: z.string(),
+					}),
+				},
+			},
+		},
 	},
 	tags: ["Authentication"],
 });
 
-app.openapi(logoutRoute, (c) => {
-	deleteCookie(c, "cartel-seal", {
-		path: "/",
-	});
+app.openapi(revokeRoute, async (c) => {
+	const authHeader = c.req.header("Authorization");
+	
+	if (!authHeader?.startsWith("Bearer ")) {
+		return c.json({ error: "Not authenticated" }, 401);
+	}
 
-	return c.json({ message: "Logged out successfully" }, 200);
+	const token = authHeader.slice(7);
+	const payload = verifyAccessToken(token);
+
+	if (!payload) {
+		return c.json({ error: "Invalid or expired token" }, 401);
+	}
+
+	await revokeAllUserTokens(payload.userId);
+
+	return c.json({ message: "All tokens revoked successfully" }, 200);
 });
+
 
 export default app;

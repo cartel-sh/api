@@ -79,7 +79,7 @@ app.doc("/openapi.json", {
 	info: {
 		title: "Cartel API",
 		version: packageJson.version,
-		description: "Shared REST API for Cartel",
+		description: "REST API for Cartel with OAuth 2.0-style bearer token authentication and API key support",
 	},
 	servers: [
 		{

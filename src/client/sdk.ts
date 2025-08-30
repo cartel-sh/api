@@ -7,10 +7,20 @@ type UserIdentityLookup = {
 };
 
 export interface AuthResponse {
+	accessToken: string;
+	refreshToken: string;
+	expiresIn: number;
+	tokenType: "Bearer";
 	userId: string;
 	address: string;
 	clientName?: string;
-	message: string;
+}
+
+export interface RefreshResponse {
+	accessToken: string;
+	refreshToken: string;
+	expiresIn: number;
+	tokenType: "Bearer";
 }
 
 export interface SiweVerifyRequest {
@@ -18,11 +28,97 @@ export interface SiweVerifyRequest {
 	signature: string;
 }
 
-export class CartelDBClient {
+export interface TokenStorage {
+	getAccessToken(): string | null;
+	getRefreshToken(): string | null;
+	setTokens(accessToken: string, refreshToken: string, expiresIn: number): void;
+	clearTokens(): void;
+}
+
+// Default in-memory token storage
+class InMemoryTokenStorage implements TokenStorage {
+	private accessToken: string | null = null;
+	private refreshToken: string | null = null;
+	private accessTokenExpiry: number | null = null;
+
+	getAccessToken(): string | null {
+		if (this.accessTokenExpiry && Date.now() >= this.accessTokenExpiry) {
+			this.accessToken = null;
+		}
+		return this.accessToken;
+	}
+
+	getRefreshToken(): string | null {
+		return this.refreshToken;
+	}
+
+	setTokens(accessToken: string, refreshToken: string, expiresIn: number): void {
+		this.accessToken = accessToken;
+		this.refreshToken = refreshToken;
+		this.accessTokenExpiry = Date.now() + (expiresIn * 1000);
+	}
+
+	clearTokens(): void {
+		this.accessToken = null;
+		this.refreshToken = null;
+		this.accessTokenExpiry = null;
+	}
+}
+
+class LocalStorageTokenStorage implements TokenStorage {
+	private readonly ACCESS_TOKEN_KEY = "cartel_access_token";
+	private readonly REFRESH_TOKEN_KEY = "cartel_refresh_token";
+	private readonly EXPIRY_KEY = "cartel_token_expiry";
+
+	getAccessToken(): string | null {
+		if (typeof window === "undefined") return null;
+		
+		const expiry = localStorage.getItem(this.EXPIRY_KEY);
+		if (expiry && Date.now() >= parseInt(expiry)) {
+			localStorage.removeItem(this.ACCESS_TOKEN_KEY);
+			localStorage.removeItem(this.EXPIRY_KEY);
+			return null;
+		}
+		
+		return localStorage.getItem(this.ACCESS_TOKEN_KEY);
+	}
+
+	getRefreshToken(): string | null {
+		if (typeof window === "undefined") return null;
+		return localStorage.getItem(this.REFRESH_TOKEN_KEY);
+	}
+
+	setTokens(accessToken: string, refreshToken: string, expiresIn: number): void {
+		if (typeof window === "undefined") return;
+		
+		localStorage.setItem(this.ACCESS_TOKEN_KEY, accessToken);
+		localStorage.setItem(this.REFRESH_TOKEN_KEY, refreshToken);
+		localStorage.setItem(this.EXPIRY_KEY, String(Date.now() + (expiresIn * 1000)));
+	}
+
+	clearTokens(): void {
+		if (typeof window === "undefined") return;
+		
+		localStorage.removeItem(this.ACCESS_TOKEN_KEY);
+		localStorage.removeItem(this.REFRESH_TOKEN_KEY);
+		localStorage.removeItem(this.EXPIRY_KEY);
+	}
+}
+
+export class CartelClient {
+	private tokenStorage: TokenStorage;
+	private refreshPromise: Promise<void> | null = null;
+
 	constructor(
 		private baseUrl: string,
 		private apiKey?: string,
-	) {}
+		tokenStorage?: TokenStorage,
+	) {
+		this.tokenStorage = tokenStorage || 
+			(typeof window !== "undefined" 
+				? new LocalStorageTokenStorage() 
+				: new InMemoryTokenStorage());
+	}
 
 	// Authentication Methods
 
@@ -31,53 +127,153 @@ export class CartelDBClient {
 	 * Client should generate SIWE message and get signature from wallet
 	 * @param message - The complete SIWE message that was signed
 	 * @param signature - The signature from the wallet
-	 * @returns Authentication response with user info
+	 * @returns Authentication response with tokens
 	 */
 	async verifySiwe(message: string, signature: string): Promise<AuthResponse> {
-		return this.request<AuthResponse>("/api/auth/verify", {
+		const response = await this.request<AuthResponse>("/api/auth/verify", {
 			method: "POST",
 			body: JSON.stringify({ message, signature }),
+			skipAuth: true, // Don't use bearer token for login
 		});
+
+		this.tokenStorage.setTokens(
+			response.accessToken,
+			response.refreshToken,
+			response.expiresIn,
+		);
+
+		return response;
+	}
+
+	/**
+	 * Refresh access token using refresh token
+	 */
+	async refreshAccessToken(): Promise<RefreshResponse> {
+		const refreshToken = this.tokenStorage.getRefreshToken();
+		
+		if (!refreshToken) {
+			throw new Error("No refresh token available");
+		}
+
+		const response = await this.request<RefreshResponse>("/api/auth/refresh", {
+			method: "POST",
+			body: JSON.stringify({ refreshToken }),
+			skipAuth: true, // Don't use bearer token for refresh
+		});
+
+		// Update stored tokens
+		this.tokenStorage.setTokens(
+			response.accessToken,
+			response.refreshToken,
+			response.expiresIn,
+		);
+
+		return response;
 	}
 
 	/**
 	 * Get current authenticated user info
-	 * Requires user to be authenticated (cookie will be sent automatically)
+	 * Requires valid access token
 	 */
 	async getCurrentUser() {
 		return this.request("/api/auth/me");
 	}
 
 	/**
-	 * Logout and clear authentication cookie
+	 * Revoke all tokens for the current user
 	 */
-	async logout() {
-		return this.request("/api/auth/logout", {
+	async revokeTokens() {
+		const response = await this.request("/api/auth/revoke", {
 			method: "POST",
 		});
+		
+		// Clear stored tokens
+		this.tokenStorage.clearTokens();
+		
+		return response;
+	}
+
+	/**
+	 * Clear stored tokens (local logout)
+	 */
+	logout() {
+		this.tokenStorage.clearTokens();
 	}
 
 	private async request<T = any>(
 		path: string,
-		options: RequestInit = {},
+		options: RequestInit & { skipAuth?: boolean } = {},
 	): Promise<T> {
 		const headers: any = {
 			"Content-Type": "application/json",
 			...options.headers,
 		};
 
-		// Include API key if provided
+		// Include API key if provided (for initial auth)
 		if (this.apiKey) {
 			headers["X-API-Key"] = this.apiKey;
 		}
 
+		// Include bearer token if available and not skipped
+		if (!options.skipAuth) {
+			const accessToken = this.tokenStorage.getAccessToken();
+			
+			if (accessToken) {
+				headers["Authorization"] = `Bearer ${accessToken}`;
+			} else {
+				// Try to refresh if we have a refresh token
+				const refreshToken = this.tokenStorage.getRefreshToken();
+				if (refreshToken && !this.refreshPromise) {
+					// Prevent multiple simultaneous refresh attempts
+					this.refreshPromise = this.refreshAccessToken()
+						.then(() => {
+							this.refreshPromise = null;
+						})
+						.catch((error) => {
+							this.refreshPromise = null;
+							throw error;
+						});
+					
+					await this.refreshPromise;
+					
+					// Get the new access token
+					const newAccessToken = this.tokenStorage.getAccessToken();
+					if (newAccessToken) {
+						headers["Authorization"] = `Bearer ${newAccessToken}`;
+					}
+				}
+			}
+		}
+
+		const { skipAuth, ...fetchOptions } = options;
 		const response = await fetch(`${this.baseUrl}${path}`, {
-			...options,
+			...fetchOptions,
 			headers,
-			credentials: "include", // Include cookies for authentication
 		});
 
 		if (!response.ok) {
+			// If we get 401 and have a refresh token, try to refresh once
+			if (response.status === 401 && !options.skipAuth) {
+				const refreshToken = this.tokenStorage.getRefreshToken();
+				if (refreshToken && !this.refreshPromise) {
+					await this.refreshAccessToken();
+					
+					// Retry the request with new token
+					const newAccessToken = this.tokenStorage.getAccessToken();
+					if (newAccessToken) {
+						headers["Authorization"] = `Bearer ${newAccessToken}`;
+						const retryResponse = await fetch(`${this.baseUrl}${path}`, {
+							...fetchOptions,
+							headers,
+						});
+						
+						if (retryResponse.ok) {
+							return retryResponse.json() as Promise<T>;
+						}
+					}
+				}
+			}
+
 			const error = await response.text();
 			throw new Error(`API Error (${response.status}): ${error}`);
 		}
@@ -104,8 +300,8 @@ export class CartelDBClient {
 	}
 
 	async getVanishingChannels(guildId?: string) {
-		const query = guildId ? `?guildId=${guildId}` : "";
-		return this.request(`/api/discord/vanish${query}`);
+		const params = guildId ? `?guildId=${guildId}` : "";
+		return this.request(`/api/discord/vanish${params}`);
 	}
 
 	async getVanishingChannel(channelId: string) {
@@ -119,11 +315,11 @@ export class CartelDBClient {
 		});
 	}
 
-	// Channel Settings - Discord
+	// Guild Channels
 	async setChannel(guildId: string, key: string, channelId: string) {
-		return this.request(`/api/discord/channels/${guildId}/${key}`, {
-			method: "PUT",
-			body: JSON.stringify({ channelId }),
+		return this.request("/api/discord/channels", {
+			method: "POST",
+			body: JSON.stringify({ guildId, key, channelId }),
 		});
 	}
 
@@ -135,118 +331,57 @@ export class CartelDBClient {
 		return this.request(`/api/discord/channels/${guildId}`);
 	}
 
-	async deleteChannel(guildId: string, key: string) {
-		return this.request(`/api/discord/channels/${guildId}/${key}`, {
-			method: "DELETE",
-		});
-	}
-
-	async deleteGuildChannels(guildId: string) {
-		return this.request(`/api/discord/channels/${guildId}`, {
-			method: "DELETE",
-		});
-	}
-
 	// Practice Sessions
 	async startSession(params: {
 		discordId?: string;
 		userId?: string;
 		notes?: string;
 	}) {
-		if (!params.discordId && !params.userId) {
-			throw new Error("Either discordId or userId must be provided");
-		}
-
-		return this.request("/api/sessions/practice/start", {
+		return this.request("/api/sessions/practice", {
 			method: "POST",
 			body: JSON.stringify(params),
 		});
 	}
 
 	async stopSession(params: { discordId?: string; userId?: string }) {
-		if (!params.discordId && !params.userId) {
-			throw new Error("Either discordId or userId must be provided");
-		}
-
 		return this.request("/api/sessions/practice/stop", {
 			method: "POST",
 			body: JSON.stringify(params),
 		});
 	}
 
-	// Discord-based stats
-	async getDailyStats(discordId: string) {
-		const response = await this.request<{ totalDuration: number }>(
-			`/api/sessions/practice/stats/daily/discord/${discordId}`,
-		);
-		return response.totalDuration;
+	async getDailyStats(discordId: string): Promise<number> {
+		return this.request(`/api/sessions/practice/stats/daily/${discordId}`);
 	}
 
-	async getWeeklyStats(discordId: string) {
-		return this.request<Record<string, number>>(
-			`/api/sessions/practice/stats/weekly/discord/${discordId}`,
-		);
-	}
-
-	async getMonthlyStats(discordId: string) {
-		return this.request<Record<string, number>>(
-			`/api/sessions/practice/stats/monthly/discord/${discordId}`,
-		);
-	}
-
-	// User UUID-based stats
-	async getDailyStatsByUserId(userId: string) {
-		const response = await this.request<{ totalDuration: number }>(
-			`/api/sessions/practice/stats/daily/user/${userId}`,
-		);
-		return response.totalDuration;
-	}
-
-	async getWeeklyStatsByUserId(userId: string) {
-		return this.request<Record<string, number>>(
-			`/api/sessions/practice/stats/weekly/user/${userId}`,
-		);
-	}
-
-	async getMonthlyStatsByUserId(userId: string) {
-		return this.request<Record<string, number>>(
-			`/api/sessions/practice/stats/monthly/user/${userId}`,
-		);
-	}
-
-	async getTopUsers() {
-		return this.request<Array<{ identity: string; totalDuration: number }>>(
-			"/api/sessions/practice/leaderboard",
-		);
-	}
-
-	async getTotalTrackedHours() {
-		const response = await this.request<{ totalHours: number }>(
-			"/api/sessions/practice/total-hours",
-		);
-		return response.totalHours;
+	async getWeeklyStats(discordId: string): Promise<Record<string, number>> {
+		return this.request(`/api/sessions/practice/stats/weekly/${discordId}`);
 	}
 
 	// Applications
-	async createApplication(data: {
+	async createApplication(params: {
 		messageId: string;
-		walletAddress: string;
-		ensName?: string | null;
-		github?: string | null;
-		farcaster?: string | null;
-		lens?: string | null;
-		twitter?: string | null;
-		excitement: string;
-		motivation: string;
-		signature: string;
+		guildId: string;
+		channelId: string;
+		applicantId: string;
+		applicantName: string;
+		responses: Record<string, string>;
+		applicationNumber: number;
 	}) {
-		return this.request<{ id: string; applicationNumber: number }>(
-			"/api/users/applications",
-			{
-				method: "POST",
-				body: JSON.stringify(data),
-			},
-		);
+		return this.request<{
+			id: string;
+			messageId: string;
+			guildId: string;
+			channelId: string;
+			applicantId: string;
+			applicantName: string;
+			responses: Record<string, string>;
+			status: string;
+			applicationNumber: number;
+		}>("/api/users/applications", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
 	}
 
 	async getPendingApplications() {
@@ -254,20 +389,18 @@ export class CartelDBClient {
 	}
 
 	async getApplicationByMessageId(messageId: string) {
-		return this.request(`/api/users/applications/by-message/${messageId}`);
+		return this.request(`/api/users/applications/message/${messageId}`);
 	}
 
 	async getApplicationByNumber(applicationNumber: number) {
-		return this.request(
-			`/api/users/applications/by-number/${applicationNumber}`,
-		);
+		return this.request(`/api/users/applications/number/${applicationNumber}`);
 	}
 
 	async updateApplicationStatus(
 		applicationId: string,
 		status: "approved" | "rejected",
 	) {
-		return this.request(`/api/users/applications/${applicationId}/status`, {
+		return this.request(`/api/users/applications/${applicationId}`, {
 			method: "PATCH",
 			body: JSON.stringify({ status }),
 		});
@@ -285,161 +418,72 @@ export class CartelDBClient {
 		userName: string,
 		voteType: "approve" | "reject",
 	) {
-		return this.request(`/api/users/applications/${applicationId}/votes`, {
+		return this.request(`/api/users/applications/${applicationId}/vote`, {
 			method: "POST",
 			body: JSON.stringify({ userId, userName, voteType }),
 		});
 	}
 
-	async getVotes(applicationId: string) {
-		return this.request(`/api/users/applications/${applicationId}/votes`);
-	}
-
 	// User Identities
-
-	async getUser(identity: UserIdentityLookup) {
-		if (identity.evm) {
-			return this.getUserByEvm(identity.evm);
-		} else if (identity.lens) {
-			return this.getUserByLens(identity.lens);
-		} else if (identity.farcaster) {
-			return this.getUserByFarcaster(identity.farcaster);
-		} else if (identity.telegram) {
-			return this.getUserByTelegram(identity.telegram);
-		} else if (identity.discord) {
-			return this.getUserByDiscord(identity.discord);
-		} else {
-			throw new Error("At least one identity type must be provided");
-		}
+	async getUserByDiscordId(discordId: string): Promise<{ id: string }> {
+		return this.request(`/api/users/id/discord/${discordId}`);
 	}
 
-	// Individual methods for backward compatibility and direct access
-	async getUserByEvm(address: string) {
-		return this.request(`/api/users/id/by-evm/${address}`);
-	}
-
-	async getUserByLens(address: string) {
-		return this.request(`/api/users/id/by-lens/${address}`);
-	}
-
-	async getUserByFarcaster(fid: string) {
-		return this.request(`/api/users/id/by-farcaster/${fid}`);
-	}
-
-	async getUserByTelegram(telegramId: string) {
-		return this.request(`/api/users/id/by-telegram/${telegramId}`);
-	}
-
-	async getUserByDiscord(discordId: string) {
-		return this.request(`/api/users/id/by-discord/${discordId}`);
-	}
-
-	async getUserIdentities(userId: string) {
-		return this.request(`/api/users/identities/${userId}`);
-	}
-
-	async createUserIdentity(data: {
-		platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
-		identity: string;
-		isPrimary?: boolean;
-	}) {
-		return this.request("/api/users/id", {
+	async getUserByIdentity(identity: UserIdentityLookup) {
+		return this.request("/api/users/identities/lookup", {
 			method: "POST",
-			body: JSON.stringify(data),
+			body: JSON.stringify(identity),
 		});
 	}
 
-	// Admin: Identity Management
-	async connectIdentity(data: {
-		userId: string;
-		platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
-		identity: string;
-		isPrimary?: boolean;
-	}) {
-		return this.request("/api/admin/identities/connect", {
+	async addUserIdentity(
+		userId: string,
+		platform: string,
+		identity: string,
+		isPrimary = false,
+	) {
+		return this.request("/api/users/identities", {
 			method: "POST",
-			body: JSON.stringify(data),
+			body: JSON.stringify({ userId, platform, identity, isPrimary }),
 		});
 	}
 
-	async disconnectIdentity(data: {
-		platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
-		identity: string;
-	}) {
-		return this.request("/api/admin/identities/disconnect", {
-			method: "DELETE",
-			body: JSON.stringify(data),
-		});
-	}
-
-	async setPrimaryIdentity(data: {
-		platform: "discord" | "evm" | "lens" | "farcaster" | "telegram";
-		identity: string;
-	}) {
-		return this.request("/api/admin/identities/set-primary", {
-			method: "PUT",
-			body: JSON.stringify(data),
-		});
-	}
-
-	async mergeUsers(sourceUserId: string, targetUserId: string) {
-		return this.request("/api/admin/identities/merge-users", {
-			method: "POST",
-			body: JSON.stringify({ sourceUserId, targetUserId }),
-		});
+	async removeUserIdentity(userId: string, platform: string, identity: string) {
+		return this.request(
+			`/api/users/identities/${userId}/${platform}/${identity}`,
+			{
+				method: "DELETE",
+			},
+		);
 	}
 
 	// Projects
-	async getProjects(params?: {
-		search?: string;
-		tags?: string;
-		userId?: string;
-		public?: "true" | "false" | "all";
-		limit?: number;
-		offset?: number;
+	async createProject(params: {
+		name: string;
+		description?: string;
+		metadata?: Record<string, any>;
 	}) {
-		const query = params
-			? `?${new URLSearchParams(params as any).toString()}`
-			: "";
-		return this.request(`/api/projects${query}`);
+		return this.request("/api/projects", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
 	}
 
 	async getProject(projectId: string) {
 		return this.request(`/api/projects/${projectId}`);
 	}
 
-	async getUserProjects(userId: string) {
-		return this.request(`/api/projects/user/${userId}`);
-	}
-
-	async createProject(data: {
-		title: string;
-		description: string;
-		githubUrl?: string | null;
-		deploymentUrl?: string | null;
-		tags?: string[];
-		isPublic?: boolean;
-	}) {
-		return this.request("/api/projects", {
-			method: "POST",
-			body: JSON.stringify(data),
-		});
-	}
-
 	async updateProject(
 		projectId: string,
-		data: {
-			title?: string;
+		updates: {
+			name?: string;
 			description?: string;
-			githubUrl?: string | null;
-			deploymentUrl?: string | null;
-			tags?: string[];
-			isPublic?: boolean;
+			metadata?: Record<string, any>;
 		},
 	) {
 		return this.request(`/api/projects/${projectId}`, {
 			method: "PATCH",
-			body: JSON.stringify(data),
+			body: JSON.stringify(updates),
 		});
 	}
 
@@ -449,7 +493,10 @@ export class CartelDBClient {
 		});
 	}
 
-	async getPopularProjectTags() {
-		return this.request("/api/projects/tags/popular");
+	async getUserProjects(userId: string) {
+		return this.request(`/api/projects/user/${userId}`);
 	}
 }
+
+// Export token storage implementations for custom usage
+export { InMemoryTokenStorage, LocalStorageTokenStorage };

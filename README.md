@@ -2,11 +2,13 @@ Shared database package with REST API and SDK for Cartel.
 
 ## Features
 
-- **REST API Server** - Hono-based API server with authentication
-- **TypeScript SDK** - Type-safe client for interacting with the API
+- **REST API Server** - Hono-based API server with OAuth 2.0-style authentication
+- **TypeScript SDK** - Type-safe client with automatic token management
 - **Database Schema** - Drizzle ORM schema definitions
-- **API Authentication** - Secure API key-based authentication
+- **Bearer Token Auth** - JWT access tokens with refresh token rotation
+- **API Key Auth** - Server-to-server authentication for applications
 - **Multi-Identity Support** - Users can have multiple identities (EVM, Lens, Farcaster, Discord, Telegram)
+- **Rate Limiting** - Dynamic rate limits based on authentication type
 - **Identity Management** - Admin routes for connecting, disconnecting, and merging user identities
 
 ## Installation
@@ -18,7 +20,7 @@ bun install
 # Copy environment variables
 cp .env.example .env
 
-# Edit .env with your database credentials and API key
+# Edit .env with your database credentials and JWT secret
 ```
 
 ## Environment Variables
@@ -28,6 +30,9 @@ Create a `.env` file with the following variables:
 ```env
 # PostgreSQL connection string
 DATABASE_URL=postgres://username:password@host:port/database
+
+# JWT Secret for token signing (required, minimum 32 characters)
+JWT_SECRET=your-secret-key-minimum-32-characters-change-in-production
 
 # Server port (default: 3003)
 PORT=3003
@@ -70,516 +75,248 @@ bun run db:studio
 
 ## Authentication
 
-The API uses JWT tokens for authentication with client-side SIWE (Sign-In with Ethereum).
+The API follows OAuth 2.0 patterns with bearer tokens and API keys.
 
-### JWT Authentication Flow
+### Token-Based Authentication Flow
 
-1. **Client generates SIWE message** with their own nonce
-2. **User signs the message** in their wallet
+1. **Client generates SIWE message** with wallet address
+2. **User signs the message** in their wallet  
 3. **Client sends to API** with signature and API key:
-   - Endpoint: `POST /api/auth/verify`
-   - Headers: `X-API-Key: <client-api-key>`
-   - Body: `{ message, signature }`
-4. **API validates**:
-   - API key identifies the client
-   - Domain/URI matches client's allowed origins
-   - Signature is valid
-   - Timestamps are valid
-5. **API returns success** and sets httpOnly cookie for authentication
+   ```http
+   POST /api/auth/verify
+   X-API-Key: <client-api-key>
+   Content-Type: application/json
+   
+   {
+     "message": "...",
+     "signature": "0x..."
+   }
+   ```
+4. **API validates** and returns tokens:
+   ```json
+   {
+     "accessToken": "eyJhbGc...",
+     "refreshToken": "crt_ref_...",
+     "expiresIn": 900,
+     "tokenType": "Bearer",
+     "userId": "...",
+     "address": "0x..."
+   }
+   ```
+5. **Client uses access token** for API requests:
+   ```http
+   GET /api/users/me
+   Authorization: Bearer <access-token>
+   ```
 
-Authentication is handled via secure httpOnly cookies - no manual token management needed.
+### Token Management
 
-### API Keys (Required for SIWE verification)
+- **Access tokens** expire in 15 minutes
+- **Refresh tokens** expire in 30 days  
+- **Token rotation** - Old refresh tokens are invalidated when used
+- **Automatic refresh** - SDK handles token refresh automatically
 
-API keys identify client applications and configure SIWE validation:
+### Refresh Token Flow
+
+When access token expires:
+```http
+POST /api/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "crt_ref_..."
+}
 ```
-X-API-Key: <api-key>
+
+Returns new token pair:
+```json
+{
+  "accessToken": "eyJhbGc...",
+  "refreshToken": "crt_ref_...",
+  "expiresIn": 900,
+  "tokenType": "Bearer"
+}
+```
+
+### API Keys (Server-to-Server)
+
+API keys are used for:
+- Initial SIWE authentication (required)
+- Server-to-server API calls
+- Higher rate limits
+
+```http
+X-API-Key: cartel_<32-character-key>
 ```
 
 **API Key Features:**
-- **Client identification** - Each client app has its own key
-- **Allowed origins** - Whitelist of domains/URIs for SIWE
-- **Rate limiting** - Keys will be used for rate limiting
-- **Key rotation** - Rotate with grace periods
-- **Usage tracking** - Monitor last usage
+- **Client identification** - Each application has its own key
+- **Allowed origins** - Whitelist of domains for SIWE validation
+- **Rate limiting** - Per-key rate limits
+- **Scopes** - Control access permissions
 
-**Important:** API keys are required for SIWE verification but do not grant authentication by themselves. JWTs are required for protected routes.
+## SDK Usage
 
-## API Documentation
-
-### Interactive Documentation
-Full API documentation with request/response schemas is available at:
-- **Interactive Docs**: `http://localhost:3003/docs` (when running locally)
-- **OpenAPI Spec**: `http://localhost:3003/openapi.json`
-
-The interactive documentation provides:
-- Complete endpoint descriptions
-- Request/response schemas
-- Authentication requirements
-- Try-it-out functionality
-- Example requests and responses
-
-### API Categories
-The API is organized into the following categories:
-- **Authentication** - SIWE verification and session management
-- **Projects** - User project management
-- **Discord** - Discord bot integrations (vanishing channels, settings)
-- **Sessions** - Practice session tracking
-- **Users** - User identity and application management  
-- **Admin** - Administrative operations (requires admin role)
-
-## Authentication Tutorial (Next.js)
-
-### Quick Setup
-
-1. **Install dependencies:**
-```bash
-npm install siwe ethers uuid
-```
-
-2. **Configure your API key** (store in environment variables):
-```env
-NEXT_PUBLIC_API_KEY=cartel_your-api-key-here
-NEXT_PUBLIC_API_URL=https://api.cartel.sh
-```
-
-3. **Create auth hook (`hooks/useAuth.ts`):**
-```typescript
-import { useState } from 'react';
-import { SiweMessage } from 'siwe';
-import { BrowserProvider } from 'ethers';
-import { v4 as uuidv4 } from 'uuid';
-
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY!;
-const API_URL = process.env.NEXT_PUBLIC_API_URL!;
-
-export function useAuth() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const signIn = async () => {
-    const provider = new BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-    const address = await signer.getAddress();
-    
-    // 1. Create SIWE message with client-generated nonce
-    const message = new SiweMessage({
-      domain: window.location.host,
-      address,
-      statement: 'Sign in to MyApp',
-      uri: window.location.origin,
-      version: '1',
-      chainId: 1,
-      nonce: uuidv4(), // Client generates unique nonce
-      expirationTime: new Date(Date.now() + 15 * 60 * 1000).toISOString(), // 15 min
-    });
-    
-    const messageToSign = message.prepareMessage();
-    const signature = await signer.signMessage(messageToSign);
-    
-    // 2. Send to API with API key
-    const verifyRes = await fetch(`${API_URL}/api/auth/verify`, {
-      method: 'POST',
-      credentials: 'include', // Include cookies
-      headers: {
-        'X-API-Key': API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        message: messageToSign,
-        signature
-      })
-    });
-    
-    if (!verifyRes.ok) {
-      throw new Error('Authentication failed');
-    }
-    
-    const data = await verifyRes.json();
-    setIsAuthenticated(true);
-    return data;
-  };
-  
-  const signOut = async () => {
-    await fetch(`${API_URL}/api/auth/logout`, {
-      method: 'POST',
-      credentials: 'include'
-    });
-    setIsAuthenticated(false);
-  };
-  
-  return { isAuthenticated, signIn, signOut };
-}
-```
-
-3. **Make authenticated requests:**
-```typescript
-// Authentication cookie is sent automatically
-await fetch(`${API_URL}/api/projects`, {
-  method: 'POST',
-  credentials: 'include', // Include cookies
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    title: 'My Project',
-    description: 'Description here'
-  })
-});
-
-// Get current user
-const userRes = await fetch(`${API_URL}/api/auth/me`, {
-  credentials: 'include'
-});
-const user = await userRes.json();
-```
-
-## Using the SDK
-
-### SDK Authentication with SIWE
+### TypeScript/JavaScript
 
 ```typescript
-import { CartelDBClient } from '@cartel-sh/db/client';
-import { SiweMessage } from 'siwe';
-import { BrowserProvider } from 'ethers';
-
-// Initialize client with your API key
-const client = new CartelDBClient(
-  'https://api.cartel.sh',
-  'cartel_your-api-key-here' // Required for SIWE verification
-);
-
-// Authentication flow
-async function authenticate() {
-  // 1. Get wallet address
-  const provider = new BrowserProvider(window.ethereum);
-  const signer = await provider.getSigner();
-  const address = await signer.getAddress();
-  
-  // 2. Create SIWE message (client-side)
-  const message = new SiweMessage({
-    domain: window.location.host,
-    address,
-    statement: 'Sign in to MyApp',
-    uri: window.location.origin,
-    version: '1',
-    chainId: 1,
-    nonce: crypto.randomUUID(), // Client generates nonce
-    expirationTime: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-  });
-  
-  // 3. Sign message with wallet
-  const messageToSign = message.prepareMessage();
-  const signature = await signer.signMessage(messageToSign);
-  
-  // 4. Verify with Cartel API
-  const authResponse = await client.verifySiwe(messageToSign, signature);
-  console.log('Authenticated:', authResponse);
-  // Cookie is automatically set by the API
-  
-  // 5. Authentication complete - cookie will be sent with requests
-  const user = await client.getCurrentUser();
-  console.log('Current user:', user);
-  
-  return authResponse;
-}
-
-// Logout
-async function logout() {
-  await client.logout(); // Clears the httpOnly cookie
-  console.log('Logged out');
-}
-```
-
-### Node.js/Server-Side Authentication
-
-```typescript
-import { CartelDBClient } from '@cartel-sh/db/client';
-import { SiweMessage } from 'siwe';
-
-// Initialize client with your API key
-const client = new CartelDBClient(
-  process.env.CARTEL_API_URL!,
-  process.env.CARTEL_API_KEY! // Your app's API key
-);
-
-// Server-side SIWE verification
-async function verifyUserAuth(message: string, signature: string) {
-  try {
-    // Verify with Cartel API - cookie will be set automatically
-    const authResponse = await client.verifySiwe(message, signature);
-    
-    // The API sets an httpOnly cookie that will be included in subsequent requests
-    // No need to manually handle JWT tokens
-    return authResponse;
-  } catch (error) {
-    console.error('Authentication failed:', error);
-    throw error;
-  }
-}
-
-// Make authenticated requests - cookies are sent automatically
-async function createUserProject(projectData: any) {
-  // No need to pass JWT - cookie is sent automatically
-  const project = await client.createProject(projectData);
-  return project;
-}
-
-// Get current user - cookie is sent automatically
-async function getCurrentUserInfo() {
-  const user = await client.getCurrentUser();
-  return user;
-}
-
-// Logout
-async function logoutUser() {
-  await client.logout(); // Clears the httpOnly cookie
-}
-```
-
-### SDK Usage Examples
-
-```typescript
-import { CartelDBClient } from '@cartel-sh/db/client';
+import { CartelClient } from "@cartel/api/client";
 
 // Initialize client
-const client = new CartelDBClient(
-  'https://api.cartel.sh',
-  'cartel_your-api-key-here'
+const client = new CartelClient(
+  "https://api.cartel.sh",
+  "cartel_your_api_key_here"
 );
 
-// After authentication (cookie is set automatically)
-// Projects API
-const projects = await client.getProjects();
-const project = await client.createProject({
-  title: 'My Project',
-  description: 'A great project',
-  isPublic: true
-});
-await client.updateProject(project.id, { description: 'Updated' });
-await client.deleteProject(project.id);
+// Authenticate with SIWE
+const auth = await client.verifySiwe(message, signature);
+// Tokens are automatically stored and managed
 
-// User identities
-const userByEvm = await client.getUser({ evm: '0x1234...' });
-const userByDiscord = await client.getUser({ discord: '123456789' });
-const identities = await client.getUserIdentities('user-uuid');
+// Make authenticated requests
+const user = await client.getCurrentUser();
 
-// Discord integrations (may not require JWT)
-await client.setVanishingChannel('channel-id', 'guild-id', 3600);
-await client.setChannel('guild-id', 'voice', 'channel-id');
-
-// Practice sessions
-await client.startSession({ discordId: 'discord-id' });
-const stats = await client.getDailyStats('discord-id');
-
-// Admin operations (requires JWT with admin role)
-const newUser = await client.createUserIdentity({
-  platform: 'evm',
-  identity: '0x5678...',
-  isPrimary: true
-});
-
-await client.connectIdentity({
-  userId: 'user-uuid',
-  platform: 'discord',
-  identity: '123456789',
-  isPrimary: false
-});
+// Logout (clears tokens)
+client.logout();
 ```
 
-### cURL Examples
+### Token Storage
 
-#### Authentication Flow
+The SDK provides flexible token storage:
 
-```bash
-# Client-side SIWE authentication
-# 1. Client generates SIWE message with their own nonce
-# 2. User signs the message
-# 3. Send to API with API key for verification
+```typescript
+// Browser - uses localStorage by default
+const client = new CartelClient(apiUrl, apiKey);
 
-curl -X POST http://localhost:3003/api/auth/verify \
-  -H "X-API-Key: cartel_your-api-key-here" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": "example.com wants you to sign in with your Ethereum account:\n0x1234...\n\nSign in to MyApp\n\nURI: https://example.com\nVersion: 1\nChain ID: 1\nNonce: unique-client-nonce\nIssued At: 2024-01-01T00:00:00.000Z",
-    "signature": "0xsignature..."
-  }'
-# Response: {"userId": "...", "address": "...", "clientName": "MyApp"}
-# Cookie is set automatically
+// Node.js - uses in-memory storage by default
+const client = new CartelClient(apiUrl, apiKey);
 
-# Subsequent requests include cookie automatically
-curl -X GET http://localhost:3003/api/auth/me \
-  -b cookies.txt -c cookies.txt
-
-# Logout - clears cookie
-curl -X POST http://localhost:3003/api/auth/logout \
-  -b cookies.txt -c cookies.txt
+// Custom storage implementation
+import { InMemoryTokenStorage } from "@cartel/api/client";
+const storage = new InMemoryTokenStorage();
+const client = new CartelClient(apiUrl, apiKey, storage);
 ```
 
-#### Projects API
+## API Endpoints
 
-```bash
-# List public projects (no auth required)
-curl -X GET http://localhost:3003/api/projects
+### Authentication
 
-# Create a project (requires JWT)
-curl -X POST http://localhost:3003/api/projects \
-  -H "Authorization: Bearer <jwt-token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "My Project",
-    "description": "Project description",
-    "isPublic": true
-  }'
+- `POST /api/auth/verify` - Verify SIWE signature and get tokens
+- `POST /api/auth/refresh` - Refresh access token
+- `GET /api/auth/me` - Get current user info
+- `POST /api/auth/revoke` - Revoke all refresh tokens
 
-# Update a project (requires JWT)
-curl -X PATCH http://localhost:3003/api/projects/{id} \
-  -H "Authorization: Bearer <jwt-token>" \
-  -H "Content-Type: application/json" \
-  -d '{"description": "Updated description"}'
-```
+### User Management
 
-#### Discord & Sessions API
+- `GET /api/users/id/discord/:discordId` - Get user ID by Discord ID
+- `POST /api/users/identities/lookup` - Lookup user by various identities
+- `POST /api/users/identities` - Add identity to user
+- `DELETE /api/users/identities/:userId/:platform/:identity` - Remove identity
 
-```bash
-# Discord endpoints (may require auth based on configuration)
-curl -X GET http://localhost:3003/api/discord/vanish
+### Discord Integration
 
-curl -X POST http://localhost:3003/api/discord/vanish \
-  -H "Content-Type: application/json" \
-  -d '{"channelId": "123", "guildId": "456", "duration": 3600}'
+- `POST /api/discord/vanish` - Create vanishing channel
+- `DELETE /api/discord/vanish/:channelId` - Remove vanishing channel
+- `GET /api/discord/vanish` - List vanishing channels
+- `POST /api/discord/channels` - Set guild channel
+- `GET /api/discord/channels/:guildId/:key` - Get guild channel
 
-# Start a practice session
-curl -X POST http://localhost:3003/api/sessions/practice/start \
-  -H "Content-Type: application/json" \
-  -d '{"discordId": "discord-id-here", "notes": "Practice notes"}'
-```
+### Practice Sessions
 
-#### User Identity Examples
+- `POST /api/sessions/practice` - Start practice session
+- `POST /api/sessions/practice/stop` - Stop practice session
+- `GET /api/sessions/practice/stats/daily/:discordId` - Get daily stats
+- `GET /api/sessions/practice/stats/weekly/:discordId` - Get weekly stats
 
-```bash
-# Public endpoints - no auth required
-curl -X GET http://localhost:3003/api/users/id/by-evm/0x1234567890abcdef
+### Applications
 
-curl -X GET http://localhost:3003/api/users/id/by-discord/123456789
+- `POST /api/users/applications` - Create application
+- `GET /api/users/applications/pending` - Get pending applications
+- `PATCH /api/users/applications/:applicationId` - Update application status
+- `POST /api/users/applications/:applicationId/vote` - Add vote to application
 
-curl -X GET http://localhost:3003/api/users/identities/user-uuid-here
+### Projects
 
-# Create user with identity
-curl -X POST http://localhost:3003/api/users/id \
-  -H "Content-Type: application/json" \
-  -d '{
-    "platform": "evm",
-    "identity": "0x1234567890abcdef",
-    "isPrimary": true
-  }'
-```
+- `POST /api/projects` - Create project
+- `GET /api/projects/:projectId` - Get project
+- `PATCH /api/projects/:projectId` - Update project
+- `DELETE /api/projects/:projectId` - Delete project
+- `GET /api/projects/user/:userId` - Get user's projects
 
-#### Admin Routes (requires JWT + admin role)
+### Admin
 
-```bash
-# Create API key with client configuration
-curl -X POST http://localhost:3003/api/admin/keys \
-  -H "Authorization: Bearer <jwt-token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "userId": "user-uuid-here",
-    "name": "MyApp Production",
-    "clientName": "MyApp",
-    "allowedOrigins": [
-      "myapp.com",
-      "www.myapp.com",
-      "*.myapp.com",
-      "localhost:3000"
-    ],
-    "scopes": ["read", "write"],
-    "description": "Production API key for MyApp"
-  }'
-# Response includes the API key (shown only once)
+- `POST /api/admin/keys` - Create API key (requires admin scope)
+- `GET /api/admin/keys` - List API keys
+- `DELETE /api/admin/keys/:keyId` - Delete API key
+- `POST /api/admin/identities/merge` - Merge user accounts
 
-# Connect identity to existing user
-curl -X POST http://localhost:3003/api/admin/identities/connect \
-  -H "Authorization: Bearer <jwt-token>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "userId": "user-uuid-here",
-    "platform": "discord",
-    "identity": "123456789",
-    "isPrimary": false
-  }'
-```
+## Rate Limiting
 
-## Building for Production
+Dynamic rate limits based on authentication:
 
-```bash
-# Build the package
-bun run build
+| Auth Type | Requests/Minute |
+|-----------|----------------|
+| Root/Admin | 1000 |
+| API Key | 100 |
+| Bearer Token | 60 |
+| Unauthenticated | 20 |
 
-# Start production server
-bun run start
-```
+Special limits for sensitive operations:
+- Auth endpoints: 5 requests per 15 minutes
+- Write operations: 20 requests per minute
 
-## Testing
-
-```bash
-# Run type checking
-bun run typecheck
-
-# Test API endpoints
-curl http://localhost:3003/health
-```
-
-## Project Structure
-
-```
-├── src/
-│   ├── client/          # SDK client code
-│   │   ├── index.ts     # Client exports
-│   │   └── sdk.ts       # API client implementation
-│   ├── server/          # API server code
-│   │   ├── index.ts     # Server entry point
-│   │   └── routes/      # API route handlers
-│   │       ├── discord/ # Discord-related routes
-│   │       ├── sessions/# Session management routes
-│   │       ├── users/   # User-related routes
-│   │       └── admin/   # Admin routes
-│   ├── schema.ts        # Database schema definitions
-│   ├── client.ts        # Database client setup
-│   └── migrate.ts       # Migration runner
-├── dist/                # Built output
-├── drizzle/             # Database migrations
-└── .env                 # Environment variables
+Rate limit headers:
+```http
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 59
+X-RateLimit-Reset: 1234567890
 ```
 
 ## Security
 
-### Client-Side SIWE Security
-
-- **Origin Validation**: Each API key has allowed origins to prevent domain spoofing
-- **Client-Generated Nonces**: Clients generate unique nonces, preventing replay attacks
-- **Timestamp Validation**: Messages have expiration times to limit validity window
-- **Signature Verification**: Cryptographic verification ensures message authenticity
-- **Client Identification**: API keys identify which client authenticated users
-
-### API Key Security
-
-- **Database Storage**: API keys are hashed using SHA-256 before storage - raw keys are never stored
-- **One-Time Display**: API keys are shown only once during creation and cannot be retrieved later
-- **Allowed Origins**: Configure trusted domains/URIs per client application
-- **Key Rotation**: Support for rotating keys with grace periods to prevent downtime
-- **Usage Tracking**: Monitor last usage timestamps to identify inactive keys
-
 ### Best Practices
 
-- **Unique Keys Per Application**: Each client app should have its own API key
-- **Restrict Origins**: Only allow necessary domains in `allowedOrigins`
-- **Use Wildcards Carefully**: Be specific with subdomain wildcards (e.g., `*.app.example.com`)
-- **Environment Variables**: Never commit API keys to version control
-- **HTTPS Only**: Always use HTTPS in production
-- **Monitor Usage**: Review API key usage patterns for anomalies
-- **Short Message Expiry**: Use short expiration times for SIWE messages (15-30 minutes)
+- **Never expose tokens** - Access tokens are short-lived (15 min)
+- **Use HTTPS** - Always use HTTPS in production
+- **Rotate refresh tokens** - Old tokens are invalidated on use
+- **Secure storage** - SDK handles secure token storage
+- **API key security** - Keep API keys secret, rotate regularly
+
+### Token Security Features
+
+- **Short-lived access tokens** - Minimize exposure window
+- **Refresh token rotation** - Detect and prevent token theft
+- **Token families** - Track refresh token lineage
+- **Automatic revocation** - Revoke entire family on suspicious activity
+
+### SIWE Security
+
+- **Client-side nonce generation** - Prevents replay attacks
+- **Domain validation** - API keys restrict allowed origins
+- **Timestamp validation** - Messages expire after set time
+- **Signature verification** - Cryptographic proof of ownership
+
+## Building
+
+```bash
+# Build for production
+bun run build
+
+# Type checking
+bun run typecheck
+
+# Linting
+npx @biomejs/biome check --write .
+```
+
+## API Documentation
+
+- Interactive API docs available at `/reference` when server is running
+- OpenAPI spec at `/openapi.json`
+- LLM-friendly docs at `/llms.txt`
 
 ## License
 
-MIT
+ISC
 
 ## Contributing
 
@@ -588,7 +325,3 @@ MIT
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
-## Support
-
-For issues and questions, please open an issue on GitHub.

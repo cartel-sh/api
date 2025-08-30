@@ -253,6 +253,68 @@ export interface ApiKey extends InferSelectModel<typeof apiKeys> {
 }
 export interface NewApiKey extends InferInsertModel<typeof apiKeys> {}
 
+export const accessTokens = pgTable(
+	"access_tokens",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		tokenHash: text("token_hash").notNull().unique(),
+		scopes: text("scopes").array().notNull().default(sql`ARRAY['read', 'write']::text[]`),
+		clientId: text("client_id"), // API key ID that created this token
+		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+	},
+	(table) => [
+		index("access_tokens_user_id_idx").on(table.userId),
+		index("access_tokens_hash_idx").on(table.tokenHash),
+		index("access_tokens_expires_idx").on(table.expiresAt),
+	],
+);
+
+export const refreshTokens = pgTable(
+	"refresh_tokens",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		tokenHash: text("token_hash").notNull().unique(),
+		familyId: uuid("family_id").notNull(), // For refresh token rotation detection
+		clientId: text("client_id"), // API key ID that created this token
+		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+		usedAt: timestamp("used_at", { withTimezone: true }),
+		revokedAt: timestamp("revoked_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+	},
+	(table) => [
+		index("refresh_tokens_user_id_idx").on(table.userId),
+		index("refresh_tokens_hash_idx").on(table.tokenHash),
+		index("refresh_tokens_family_idx").on(table.familyId),
+		index("refresh_tokens_expires_idx").on(table.expiresAt),
+	],
+);
+
+export const accessTokensRelations = relations(accessTokens, ({ one }) => ({
+	user: one(users, {
+		fields: [accessTokens.userId],
+		references: [users.id],
+	}),
+}));
+
+export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
+	user: one(users, {
+		fields: [refreshTokens.userId],
+		references: [users.id],
+	}),
+}));
+
+export interface AccessToken extends InferSelectModel<typeof accessTokens> {}
+export interface NewAccessToken extends InferInsertModel<typeof accessTokens> {}
+export interface RefreshToken extends InferSelectModel<typeof refreshTokens> {}
+export interface NewRefreshToken extends InferInsertModel<typeof refreshTokens> {}
+
 export const projects = pgTable(
 	"projects",
 	{

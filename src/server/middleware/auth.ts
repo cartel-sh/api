@@ -1,5 +1,4 @@
 import type { Context, Next } from "hono";
-import { getCookie } from "hono/cookie";
 import { eq, and, or, isNull, gte } from "drizzle-orm";
 import { db, apiKeys } from "../../client";
 import {
@@ -7,8 +6,8 @@ import {
 	getApiKeyPrefix,
 	isValidApiKeyFormat,
 } from "../utils/crypto";
+import { verifyAccessToken } from "../utils/tokens";
 import type { ApiKey } from "../../schema";
-import jwt from "jsonwebtoken";
 
 // Simple in-memory cache for API keys
 interface CachedKey {
@@ -95,6 +94,58 @@ async function getApiKey(rawKey: string): Promise<ApiKey | null> {
 }
 
 /**
+ * Bearer token authentication middleware
+ * Validates JWT access tokens in Authorization header
+ */
+export async function bearerAuth(c: Context, next: Next) {
+	const authHeader = c.req.header("Authorization");
+
+	if (!authHeader?.startsWith("Bearer ")) {
+		return c.json(
+			{ error: "Missing bearer token. Please provide Authorization: Bearer <token> header" },
+			401,
+		);
+	}
+
+	const token = authHeader.slice(7);
+	const payload = verifyAccessToken(token);
+
+	if (!payload) {
+		return c.json({ error: "Invalid or expired token" }, 401);
+	}
+
+	// context variables for use in routes
+	c.set("userId", payload.userId);
+	c.set("userScopes", payload.scopes);
+	c.set("clientId", payload.clientId);
+	c.set("authType", "bearer");
+
+	await next();
+}
+
+/**
+ * Optional bearer token middleware
+ * Extracts bearer token if present, doesn't require it
+ */
+export async function optionalBearerAuth(c: Context, next: Next) {
+	const authHeader = c.req.header("Authorization");
+
+	if (authHeader?.startsWith("Bearer ")) {
+		const token = authHeader.slice(7);
+		const payload = verifyAccessToken(token);
+
+		if (payload) {
+			c.set("userId", payload.userId);
+			c.set("userScopes", payload.scopes);
+			c.set("clientId", payload.clientId);
+			c.set("authType", "bearer");
+		}
+	}
+
+	await next();
+}
+
+/**
  * API key authentication middleware (requires API key)
  */
 export async function apiKeyAuth(c: Context, next: Next) {
@@ -116,6 +167,7 @@ export async function apiKeyAuth(c: Context, next: Next) {
 		c.set("apiKeyType", "root");
 		c.set("apiKeyScopes", ["read", "write", "admin", "root"]);
 		c.set("userId", "root");
+		c.set("authType", "apikey");
 		await next();
 		return;
 	}
@@ -137,6 +189,7 @@ export async function apiKeyAuth(c: Context, next: Next) {
 	c.set("userId", keyData.userId);
 	c.set("apiKeyScopes", keyData.scopes || ["read", "write"]);
 	c.set("apiKeyType", "database");
+	c.set("authType", "apikey");
 
 	await next();
 }
@@ -161,7 +214,8 @@ export async function optionalApiKey(c: Context, next: Next) {
 		// Root key has all permissions and bypasses database
 		c.set("apiKeyType", "root");
 		c.set("apiKeyScopes", ["read", "write", "admin", "root"]);
-		c.set("apiKeyUserId", "root"); // Use apiKeyUserId to differentiate from JWT userId
+		c.set("apiKeyUserId", "root");
+		c.set("authType", "apikey");
 		await next();
 		return;
 	}
@@ -186,32 +240,95 @@ export async function optionalApiKey(c: Context, next: Next) {
 
 	// Set context variables for use in routes (for rate limiting and client identification)
 	c.set("apiKeyId", keyData.id);
-	c.set("apiKeyUserId", keyData.userId); // Use apiKeyUserId to differentiate from JWT userId
+	c.set("apiKeyUserId", keyData.userId);
 	c.set("apiKeyScopes", keyData.scopes || ["read", "write"]);
 	c.set("apiKeyType", "database");
 	c.set("clientName", keyData.clientName);
 	c.set("allowedOrigins", keyData.allowedOrigins);
+	c.set("authType", "apikey");
 
 	await next();
 }
 
 /**
+ * Combined authentication middleware
+ * Accepts either Bearer token OR API key
+ */
+export async function combinedAuth(c: Context, next: Next) {
+	const authHeader = c.req.header("Authorization");
+	const apiKey = c.req.header("X-API-Key");
+
+	// Prefer Bearer token if both are provided
+	if (authHeader?.startsWith("Bearer ")) {
+		const token = authHeader.slice(7);
+		const payload = verifyAccessToken(token);
+
+		if (payload) {
+			c.set("userId", payload.userId);
+			c.set("userScopes", payload.scopes);
+			c.set("clientId", payload.clientId);
+			c.set("authType", "bearer");
+			await next();
+			return;
+		}
+	}
+
+	// Fall back to API key
+	if (apiKey) {
+		// Check for root key
+		const rootKey = process.env.API_KEY || Bun.env?.API_KEY;
+
+		if (rootKey && apiKey === rootKey) {
+			c.set("apiKeyType", "root");
+			c.set("apiKeyScopes", ["read", "write", "admin", "root"]);
+			c.set("userId", "root");
+			c.set("authType", "apikey");
+			await next();
+			return;
+		}
+
+		// Validate format and get key
+		if (isValidApiKeyFormat(apiKey)) {
+			const keyData = await getApiKey(apiKey);
+
+			if (keyData) {
+				c.set("apiKeyId", keyData.id);
+				c.set("userId", keyData.userId);
+				c.set("apiKeyScopes", keyData.scopes || ["read", "write"]);
+				c.set("apiKeyType", "database");
+				c.set("authType", "apikey");
+				await next();
+				return;
+			}
+		}
+	}
+
+	return c.json(
+		{ error: "Authentication required. Provide either Bearer token or API key" },
+		401,
+	);
+}
+
+/**
  * Scope checking middleware
- * Use after apiKeyAuth to check if the key has required scopes
+ * Use after auth middleware to check if the user/key has required scopes
  */
 export function requireScopes(...requiredScopes: string[]) {
 	return async (c: Context, next: Next) => {
-		const keyScopes = (c.get("apiKeyScopes") as string[]) || [];
+		const authType = c.get("authType");
+		const scopes = authType === "bearer" 
+			? (c.get("userScopes") as string[]) 
+			: (c.get("apiKeyScopes") as string[]) || [];
 
 		// Root and admin scopes have access to everything
-		if (keyScopes.includes("root") || keyScopes.includes("admin")) {
+		if (scopes.includes("root") || scopes.includes("admin")) {
 			await next();
 			return;
 		}
 
 		// Check if key has all required scopes
 		const hasAllScopes = requiredScopes.every((scope) =>
-			keyScopes.includes(scope),
+			scopes.includes(scope),
 		);
 
 		if (!hasAllScopes) {
@@ -219,7 +336,7 @@ export function requireScopes(...requiredScopes: string[]) {
 				{
 					error: "Insufficient permissions",
 					required: requiredScopes,
-					available: keyScopes,
+					available: scopes,
 				},
 				403,
 			);
@@ -236,90 +353,7 @@ export function clearApiKeyCache() {
 	keyCache.clear();
 }
 
-// JWT configuration - reuse from auth routes
-const JWT_SECRET =
-	process.env.JWT_SECRET ||
-	Bun.env.JWT_SECRET ||
-	"development-secret-key-change-this-in-production-minimum-32-chars";
-
-/**
- * Middleware to extract JWT token and set user context
- * Sets sessionUserId and userAddress in context if valid token present
- * Does not fail if no token - use for optional auth
- * Checks cookie first, then Authorization header
- */
-export async function withJwtAuth(c: Context, next: Next) {
-	// Try cookie first, then Authorization header
-	const token =
-		getCookie(c, "cartelToken") ||
-		(c.req.header("Authorization")?.startsWith("Bearer ")
-			? c.req.header("Authorization")!.slice(7)
-			: null);
-
-	if (token) {
-		try {
-			const payload = jwt.verify(token, JWT_SECRET) as any;
-			c.set("sessionUserId", payload.userId);
-			c.set("userAddress", payload.address);
-			c.set("clientId", payload.clientId);
-			c.set("clientName", payload.clientName);
-		} catch (error) {
-			// Invalid token, continue without user auth
-			console.debug("Invalid JWT token:", error);
-		}
-	}
-
-	await next();
-}
-
-/**
- * Middleware that requires a valid JWT token
- * Returns 401 if no valid token present
- * Checks cookie first, then Authorization header
- */
-export async function requireJwtAuth(c: Context, next: Next) {
-	// Try cookie first, then Authorization header
-	const token =
-		getCookie(c, "cartelToken") ||
-		(c.req.header("Authorization")?.startsWith("Bearer ")
-			? c.req.header("Authorization")!.slice(7)
-			: null);
-
-	if (!token) {
-		return c.json(
-			{
-				error: "Authentication required",
-				message: "Please sign in to continue",
-			},
-			401,
-		);
-	}
-
-	try {
-		const payload = jwt.verify(token, JWT_SECRET) as any;
-		c.set("sessionUserId", payload.userId);
-		c.set("userAddress", payload.address);
-		c.set("clientId", payload.clientId);
-		c.set("clientName", payload.clientName);
-		await next();
-	} catch (error) {
-		return c.json(
-			{
-				error: "Invalid or expired token",
-				message: "Please sign in again",
-			},
-			401,
-		);
-	}
-}
-
-/**
- * Combined middleware that requires both API key and JWT auth
- * API key identifies the application, JWT identifies the user
- */
-export async function requireFullAuth(c: Context, next: Next) {
-	const apiKeyResult = await apiKeyAuth(c, async () => {});
-	if (apiKeyResult) return apiKeyResult; // Return error if API key invalid
-
-	return requireJwtAuth(c, next);
-}
+// Export old function names for backward compatibility (will be removed)
+export const requireJwtAuth = bearerAuth;
+export const withJwtAuth = optionalBearerAuth;
+export const requireFullAuth = combinedAuth;
