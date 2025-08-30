@@ -1,8 +1,8 @@
 import { randomBytes, createHash } from "crypto";
 import jwt from "jsonwebtoken";
-import { db, accessTokens, refreshTokens } from "../../client";
+import { db, refreshTokens, users } from "../../client";
 import { eq, and, gte, isNull } from "drizzle-orm";
-import type { AccessToken, RefreshToken } from "../../schema";
+import type { RefreshToken, UserRole } from "../../schema";
 
 // Token configuration
 const ACCESS_TOKEN_EXPIRY = 15 * 60; // 15 minutes in seconds
@@ -29,11 +29,11 @@ export function hashToken(token: string): string {
 }
 
 /**
- * Generate an access token JWT
+ * Generate an access token JWT with role
  */
 export function generateAccessToken(
 	userId: string,
-	scopes: string[] = ["read", "write"],
+	userRole: UserRole,
 	clientId?: string,
 ): string {
 	if (!JWT_SECRET) {
@@ -42,7 +42,7 @@ export function generateAccessToken(
 	return jwt.sign(
 		{
 			sub: userId,
-			scopes,
+			role: userRole,
 			clientId,
 			type: "access",
 			iat: Math.floor(Date.now() / 1000),
@@ -64,7 +64,7 @@ export function generateRefreshToken(): string {
  */
 export function verifyAccessToken(token: string): {
 	userId: string;
-	scopes: string[];
+	userRole: UserRole;
 	clientId?: string;
 } | null {
 	if (!JWT_SECRET) {
@@ -77,7 +77,7 @@ export function verifyAccessToken(token: string): {
 		}
 		return {
 			userId: payload.sub,
-			scopes: payload.scopes || ["read", "write"],
+			userRole: payload.role || 'authenticated',
 			clientId: payload.clientId,
 		};
 	} catch {
@@ -86,24 +86,22 @@ export function verifyAccessToken(token: string): {
 }
 
 /**
- * Create and store access token in database
+ * Create access token (no database storage)
  */
 export async function createAccessToken(
 	userId: string,
-	scopes: string[] = ["read", "write"],
 	clientId?: string,
 ): Promise<{ token: string; expiresIn: number }> {
-	const token = generateAccessToken(userId, scopes, clientId);
-	const tokenHash = hashToken(token);
-	const expiresAt = new Date(Date.now() + ACCESS_TOKEN_EXPIRY * 1000);
-
-	await db.insert(accessTokens).values({
-		userId,
-		tokenHash,
-		scopes,
-		clientId,
-		expiresAt,
+	// Fetch user to get role
+	const user = await db.query.users.findFirst({
+		where: eq(users.id, userId),
 	});
+
+	if (!user) {
+		throw new Error("User not found");
+	}
+
+	const token = generateAccessToken(userId, user.role, clientId);
 
 	return {
 		token,
@@ -205,7 +203,6 @@ export async function rotateRefreshToken(
 	// Create new tokens
 	const newAccess = await createAccessToken(
 		refreshToken.userId,
-		["read", "write"],
 		clientId || refreshToken.clientId || undefined,
 	);
 
@@ -239,16 +236,8 @@ export async function revokeAllUserTokens(userId: string): Promise<void> {
  * Clean up expired tokens (for periodic maintenance)
  */
 export async function cleanupExpiredTokens(): Promise<{
-	accessTokensDeleted: number;
 	refreshTokensDeleted: number;
 }> {
-	const now = new Date();
-
-	// Delete expired access tokens
-	const deletedAccess = await db
-		.delete(accessTokens)
-		.where(gte(accessTokens.expiresAt, now));
-
 	// Delete expired or revoked refresh tokens older than 90 days
 	const cutoffDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 	const deletedRefresh = await db
@@ -256,7 +245,6 @@ export async function cleanupExpiredTokens(): Promise<{
 		.where(gte(refreshTokens.createdAt, cutoffDate));
 
 	return {
-		accessTokensDeleted: deletedAccess.length,
 		refreshTokensDeleted: deletedRefresh.length,
 	};
 }

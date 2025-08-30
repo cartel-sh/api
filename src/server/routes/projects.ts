@@ -1,16 +1,15 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { db, projects, withUser } from "../../client";
-import type { NewProject } from "../../schema";
+import type { NewProject, UserRole } from "../../schema";
 import { eq, and, or, desc, ilike, arrayContains, sql } from "drizzle-orm";
-import { requireScopes, withJwtAuth, requireJwtAuth } from "../middleware/auth";
+import { requireAuth, withJwtAuth, requireJwtAuth } from "../middleware/auth";
 
 type Variables = {
-	apiKeyUserId?: string;
-	apiKeyScopes?: string[];
+	userId?: string;
+	userRole?: UserRole;
 	apiKeyId?: string;
 	apiKeyType?: string;
-	sessionUserId?: string;
-	userAddress?: string;
+	clientName?: string;
 };
 
 const app = new OpenAPIHono<{ Variables: Variables }>();
@@ -80,13 +79,13 @@ app.openapi(listProjectsRoute, async (c) => {
 		limit,
 		offset,
 	} = c.req.valid("query");
-	const sessionUserId = c.get("sessionUserId");
-	const scopes = c.get("apiKeyScopes") || [];
-	const isAdmin = scopes.includes("admin") || scopes.includes("root");
+	const currentUserId = c.get("userId");
+	const userRole = c.get("userRole") as UserRole | undefined;
+	const isAdmin = userRole === 'admin';
+	const isMember = userRole === 'member';
 
-	if (sessionUserId) {
-		const results = await withUser(sessionUserId, async (tx) => {
-			let query = tx.select().from(projects);
+	if (currentUserId) {
+		const results = await withUser(currentUserId, userRole || null, async (tx) => {
 			const conditions: any[] = [];
 
 			if (search) {
@@ -103,12 +102,20 @@ app.openapi(listProjectsRoute, async (c) => {
 				conditions.push(arrayContains(projects.tags, tagArray));
 			}
 
-			if (userId && userId !== sessionUserId) {
-				conditions.push(eq(projects.isPublic, true));
+			if (userId && userId !== currentUserId) {
+				// When querying another user's projects, respect visibility
+				if (!isAdmin && !isMember) {
+					conditions.push(eq(projects.isPublic, true));
+				}
 				conditions.push(eq(projects.userId, userId));
 			}
 
-			return (conditions.length > 0 ? query.where(and(...conditions)) : query)
+			const query = tx.select().from(projects);
+			const finalQuery = conditions.length > 0
+				? query.where(and(...conditions))
+				: query;
+
+			return await finalQuery
 				.orderBy(desc(projects.createdAt))
 				.limit(limit)
 				.offset(offset);
@@ -117,53 +124,54 @@ app.openapi(listProjectsRoute, async (c) => {
 		return c.json(results);
 	}
 
-	const conditions: any[] = [];
+	// For unauthenticated requests, use withUser with null role (defaults to public)
+	const results = await withUser(null, null, async (tx) => {
+		const conditions: any[] = [];
 
-	if (!isAdmin) {
-		if (publicFilter === "all") {
+		if (!isAdmin && !isMember) {
+			// Public users can only see public projects
+			if (publicFilter === "false") {
+				return [];
+			}
 			conditions.push(eq(projects.isPublic, true));
-		} else if (publicFilter === "false") {
-			return c.json([], 200);
-		} else {
-			conditions.push(eq(projects.isPublic, true));
+		} else if (publicFilter !== "all") {
+			conditions.push(eq(projects.isPublic, publicFilter === "true"));
 		}
-	} else if (publicFilter !== "all") {
-		conditions.push(eq(projects.isPublic, publicFilter === "true"));
-	}
 
-	if (userId) {
-		if (!isAdmin) {
+		if (userId) {
+			if (!isAdmin && !isMember) {
+				conditions.push(
+					and(eq(projects.userId, userId), eq(projects.isPublic, true)),
+				);
+			} else {
+				conditions.push(eq(projects.userId, userId));
+			}
+		}
+
+		if (search) {
 			conditions.push(
-				and(eq(projects.userId, userId), eq(projects.isPublic, true)),
+				or(
+					ilike(projects.title, `%${search}%`),
+					ilike(projects.description, `%${search}%`),
+				),
 			);
-		} else {
-			conditions.push(eq(projects.userId, userId));
 		}
-	}
 
-	if (search) {
-		conditions.push(
-			or(
-				ilike(projects.title, `%${search}%`),
-				ilike(projects.description, `%${search}%`),
-			),
-		);
-	}
+		if (tags) {
+			const tagArray = tags.split(",").map((t) => t.trim());
+			conditions.push(arrayContains(projects.tags, tagArray));
+		}
 
-	if (tags) {
-		const tagArray = tags.split(",").map((t) => t.trim());
-		conditions.push(arrayContains(projects.tags, tagArray));
-	}
+		const query = tx.select().from(projects);
+		const finalQuery = conditions.length > 0
+			? query.where(and(...conditions))
+			: query;
 
-	const query = db.select().from(projects);
-
-	const results = await (conditions.length > 0
-		? query.where(and(...conditions))
-		: query
-	)
-		.orderBy(desc(projects.createdAt))
-		.limit(limit)
-		.offset(offset);
+		return await finalQuery
+			.orderBy(desc(projects.createdAt))
+			.limit(limit)
+			.offset(offset);
+	});
 
 	return c.json(results);
 });
@@ -225,23 +233,21 @@ const getProjectRoute = createRoute({
 
 app.openapi(getProjectRoute, async (c) => {
 	const { id: projectId } = c.req.valid("param") as { id: string };
-	const sessionUserId = c.get("sessionUserId");
-	const scopes = c.get("apiKeyScopes") || [];
-	const isAdmin = scopes.includes("admin") || scopes.includes("root");
+	const currentUserId = c.get("userId");
+	const userRole = c.get("userRole") as UserRole | undefined;
 
-	const project = await db.query.projects.findFirst({
-		where: eq(projects.id, projectId),
-		with: {
-			user: true,
-		},
+	// Use withUser to apply RLS policies
+	const project = await withUser(currentUserId || null, userRole || null, async (tx) => {
+		return tx.query.projects.findFirst({
+			where: eq(projects.id, projectId),
+			with: {
+				user: true,
+			},
+		});
 	});
 
 	if (!project) {
-		return c.json({ error: "Project not found" }, 404);
-	}
-
-	if (!project.isPublic && project.userId !== sessionUserId && !isAdmin) {
-		return c.json({ error: "Access denied" }, 403);
+		return c.json({ error: "Project not found or access denied" }, 404);
 	}
 
 	return c.json(project, 200);
@@ -252,7 +258,7 @@ const createProjectRoute = createRoute({
 	path: "/",
 	description: "Create a new project for the authenticated user",
 	summary: "Create project",
-	middleware: [requireJwtAuth, requireScopes("write")],
+	middleware: [requireJwtAuth, requireAuth],
 	request: {
 		body: {
 			content: {
@@ -298,15 +304,16 @@ const createProjectRoute = createRoute({
 
 app.openapi(createProjectRoute, async (c) => {
 	const data = c.req.valid("json");
-	const sessionUserId = c.get("sessionUserId")!;
+	const currentUserId = c.get("userId")!;
+	const userRole = c.get("userRole")!;
 
 	const newProject: NewProject = {
 		...data,
-		userId: sessionUserId,
+		userId: currentUserId,
 		tags: data.tags || [],
 	};
 
-	const result = await withUser(sessionUserId, async (tx) => {
+	const result = await withUser(currentUserId, userRole, async (tx) => {
 		const [project] = await tx.insert(projects).values(newProject).returning();
 		return project;
 	});
@@ -319,7 +326,7 @@ const updateProjectRoute = createRoute({
 	path: "/{id}",
 	description: "Update an existing project owned by the authenticated user",
 	summary: "Update project",
-	middleware: [requireJwtAuth, requireScopes("write")],
+	middleware: [requireJwtAuth, requireAuth],
 	request: {
 		params: z.object({
 			id: z.string(),
@@ -369,9 +376,10 @@ const updateProjectRoute = createRoute({
 app.openapi(updateProjectRoute, async (c) => {
 	const { id: projectId } = c.req.valid("param");
 	const updates = c.req.valid("json");
-	const sessionUserId = c.get("sessionUserId")!;
+	const currentUserId = c.get("userId")!;
+	const userRole = c.get("userRole")!;
 
-	const result = await withUser(sessionUserId, async (tx) => {
+	const result = await withUser(currentUserId, userRole, async (tx) => {
 		const [updated] = await tx
 			.update(projects)
 			.set({
@@ -395,7 +403,7 @@ const deleteProjectRoute = createRoute({
 	path: "/{id}",
 	description: "Delete a project owned by the authenticated user",
 	summary: "Delete project",
-	middleware: [requireJwtAuth, requireScopes("write")],
+	middleware: [requireJwtAuth, requireAuth],
 	request: {
 		params: z.object({
 			id: z.string(),
@@ -428,10 +436,11 @@ const deleteProjectRoute = createRoute({
 
 app.openapi(deleteProjectRoute, async (c) => {
 	const { id: projectId } = c.req.valid("param");
-	const sessionUserId = c.get("sessionUserId")!;
+	const currentUserId = c.get("userId")!;
+	const userRole = c.get("userRole")!;
 
 	try {
-		await withUser(sessionUserId, async (tx) => {
+		await withUser(currentUserId, userRole, async (tx) => {
 			await tx.delete(projects).where(eq(projects.id, projectId));
 		});
 		return c.json({ success: true }, 200);
@@ -478,22 +487,17 @@ const getUserProjectsRoute = createRoute({
 
 app.openapi(getUserProjectsRoute, async (c) => {
 	const { userId } = c.req.valid("param");
-	const sessionUserId = c.get("sessionUserId");
-	const scopes = c.get("apiKeyScopes") || [];
-	const isAdmin = scopes.includes("admin") || scopes.includes("root");
+	const currentUserId = c.get("userId");
+	const userRole = c.get("userRole") as UserRole | undefined;
 
-	let conditions: any;
-	if (!isAdmin && userId !== sessionUserId) {
-		conditions = and(eq(projects.userId, userId), eq(projects.isPublic, true));
-	} else {
-		conditions = eq(projects.userId, userId);
-	}
-
-	const userProjects = await db
-		.select()
-		.from(projects)
-		.where(conditions)
-		.orderBy(desc(projects.createdAt));
+	// Use withUser to apply RLS policies
+	const userProjects = await withUser(currentUserId || null, userRole || null, async (tx) => {
+		return tx
+			.select()
+			.from(projects)
+			.where(eq(projects.userId, userId))
+			.orderBy(desc(projects.createdAt));
+	});
 
 	return c.json(userProjects);
 });

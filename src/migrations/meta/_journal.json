@@ -64,6 +64,20 @@
       "when": 1756540686462,
       "tag": "0008_minor_james_howlett",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1756550225312,
+      "tag": "0009_lively_rafael_vega",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1756550858679,
+      "tag": "0010_wild_frank_castle",
+      "breakpoints": true
     }
   ]
 }

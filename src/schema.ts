@@ -10,23 +10,78 @@ import {
 	integer,
 	pgTable,
 	pgPolicy,
+	pgRole,
 	primaryKey,
 	text,
 	timestamp,
 	uuid,
 } from "drizzle-orm/pg-core";
 
+export type UserRole = 'authenticated' | 'member' | 'admin';
+
+export const publicRole = pgRole('public').existing(); // For unauthenticated access
+export const authenticatedRole = pgRole('authenticated'); // For any logged-in user
+export const memberRole = pgRole('member', { inherit: true }); // For verified members
+export const adminRole = pgRole('admin', { createRole: false }); // For administrators
+
+// Note: 'public' is a built-in PostgreSQL role for unauthenticated access
+// 'authenticated' is for any logged-in user (default role)
+// 'member' is for verified/paying users
+// 'admin' is for users with administrative privileges
+
 export const users = pgTable("users", {
 	id: uuid("id").primaryKey().defaultRandom(),
+	role: text("role").notNull().default('authenticated').$type<UserRole>(),
 	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+	index("users_role_idx").on(table.role),
+	pgPolicy("users_select_authenticated", {
+		as: "permissive",
+		to: authenticatedRole,
+		for: "select",
+		using: sql`id = current_setting('app.current_user_id', true)::uuid`,
+	}),
+	pgPolicy("users_select_members", {
+		as: "permissive",
+		to: memberRole,
+		for: "select",
+		using: sql`true`, // Members can see all users
+	}),
+	pgPolicy("users_select_admin", {
+		as: "permissive",
+		to: adminRole,
+		for: "select",
+		using: sql`true`, // Admins can see all users
+	}),
+	pgPolicy("users_update_self", {
+		as: "permissive",
+		to: authenticatedRole,
+		for: "update",
+		using: sql`id = current_setting('app.current_user_id', true)::uuid`,
+		withCheck: sql`id = current_setting('app.current_user_id', true)::uuid`,
+	}),
+	pgPolicy("users_update_admin", {
+		as: "permissive",
+		to: adminRole,
+		for: "update",
+		using: sql`true`,
+		withCheck: sql`true`,
+	}),
+	pgPolicy("users_delete_admin", {
+		as: "permissive",
+		to: adminRole,
+		for: "delete",
+		using: sql`true`,
+	}),
+]).enableRLS();
 
 export const usersRelations = relations(users, ({ many }) => ({
 	identities: many(userIdentities),
 	practiceSessions: many(practiceSessions),
 	apiKeys: many(apiKeys),
 	projects: many(projects),
+	refreshTokens: many(refreshTokens),
 }));
 
 export const userIdentities = pgTable(
@@ -47,8 +102,58 @@ export const userIdentities = pgTable(
 		index("user_identities_primary_idx")
 			.on(table.userId, table.isPrimary)
 			.where(sql`${table.isPrimary} = true`),
+		pgPolicy("user_identities_select_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "select",
+			using: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		pgPolicy("user_identities_select_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "select",
+			using: sql`true`,
+		}),
+		pgPolicy("user_identities_insert_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "insert",
+			withCheck: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		pgPolicy("user_identities_insert_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "insert",
+			withCheck: sql`true`,
+		}),
+		pgPolicy("user_identities_update_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "update",
+			using: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+			withCheck: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		pgPolicy("user_identities_update_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "update",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
+		pgPolicy("user_identities_delete_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "delete",
+			using: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		pgPolicy("user_identities_delete_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "delete",
+			using: sql`true`,
+		}),
 	],
-);
+).enableRLS();
 
 export const userIdentitiesRelations = relations(userIdentities, ({ one }) => ({
 	user: one(users, {
@@ -68,8 +173,17 @@ export const vanishingChannels = pgTable(
 		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 		updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 	},
-	(table) => [index("vanishing_channels_guild_idx").on(table.guildId)],
-);
+	(table) => [
+		index("vanishing_channels_guild_idx").on(table.guildId),
+		pgPolicy("vanishing_channels_admin_all", {
+			as: "permissive",
+			to: adminRole,
+			for: "all",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
+	],
+).enableRLS();
 
 export const practiceSessions = pgTable(
 	"practice_sessions",
@@ -89,8 +203,22 @@ export const practiceSessions = pgTable(
 		index("practice_sessions_active_idx")
 			.on(table.userId)
 			.where(sql`${table.endTime} IS NULL`),
+		pgPolicy("practice_sessions_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "all",
+			using: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+			withCheck: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		pgPolicy("practice_sessions_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "all",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
 	],
-);
+).enableRLS();
 
 export const practiceSessionsRelations = relations(
 	practiceSessions,
@@ -114,10 +242,19 @@ export const channelSettings = pgTable(
 	},
 	(table) => [
 		index("channel_settings_guild_key_idx").on(table.guildId, table.key),
+		pgPolicy("channel_settings_admin_all", {
+			as: "permissive",
+			to: adminRole,
+			for: "all",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
 	],
-);
+).enableRLS();
 
-export interface User extends InferSelectModel<typeof users> {}
+export interface User extends InferSelectModel<typeof users> {
+	role: UserRole;
+}
 export interface NewUser extends InferInsertModel<typeof users> {}
 
 export interface UserIdentity extends InferSelectModel<typeof userIdentities> {}
@@ -168,8 +305,21 @@ export const applications = pgTable(
 	(table) => [
 		index("applications_status_idx").on(table.status),
 		index("applications_wallet_idx").on(table.walletAddress),
+		pgPolicy("applications_select_member", {
+			as: "permissive",
+			to: memberRole,
+			for: "select",
+			using: sql`true`,
+		}),
+		pgPolicy("applications_admin_all", {
+			as: "permissive",
+			to: adminRole,
+			for: "all",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
 	],
-);
+).enableRLS();
 
 export const applicationVotes = pgTable(
 	"application_votes",
@@ -186,8 +336,22 @@ export const applicationVotes = pgTable(
 	(table) => [
 		primaryKey({ columns: [table.applicationId, table.userId] }),
 		index("votes_application_idx").on(table.applicationId),
+		pgPolicy("application_votes_member", {
+			as: "permissive",
+			to: memberRole,
+			for: "all",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
+		pgPolicy("application_votes_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "all",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
 	],
-);
+).enableRLS();
 
 export const applicationsRelations = relations(applications, ({ many }) => ({
 	votes: many(applicationVotes),
@@ -221,7 +385,6 @@ export const apiKeys = pgTable(
 		keyPrefix: text("key_prefix").notNull().unique(), // First 8 chars for identification
 		keyHash: text("key_hash").notNull().unique(), // SHA-256 hash of full key
 		description: text("description"),
-		scopes: text("scopes").array().default(sql`ARRAY['read', 'write']::text[]`),
 		clientName: text("client_name"), // Name of the client application
 		allowedOrigins: text("allowed_origins").array(), // Allowed domains/URIs for SIWE
 		lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
@@ -238,8 +401,22 @@ export const apiKeys = pgTable(
 		index("api_keys_expires_idx")
 			.on(table.expiresAt)
 			.where(sql`${table.isActive} = true`),
+		pgPolicy("api_keys_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "all",
+			using: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+			withCheck: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		pgPolicy("api_keys_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "all",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
 	],
-);
+).enableRLS();
 
 export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
 	user: one(users, {
@@ -248,30 +425,8 @@ export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
 	}),
 }));
 
-export interface ApiKey extends InferSelectModel<typeof apiKeys> {
-	scopes: string[];
-}
+export interface ApiKey extends InferSelectModel<typeof apiKeys> {}
 export interface NewApiKey extends InferInsertModel<typeof apiKeys> {}
-
-export const accessTokens = pgTable(
-	"access_tokens",
-	{
-		id: uuid("id").primaryKey().defaultRandom(),
-		userId: uuid("user_id")
-			.notNull()
-			.references(() => users.id, { onDelete: "cascade" }),
-		tokenHash: text("token_hash").notNull().unique(),
-		scopes: text("scopes").array().notNull().default(sql`ARRAY['read', 'write']::text[]`),
-		clientId: text("client_id"), // API key ID that created this token
-		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-	},
-	(table) => [
-		index("access_tokens_user_id_idx").on(table.userId),
-		index("access_tokens_hash_idx").on(table.tokenHash),
-		index("access_tokens_expires_idx").on(table.expiresAt),
-	],
-);
 
 export const refreshTokens = pgTable(
 	"refresh_tokens",
@@ -293,15 +448,22 @@ export const refreshTokens = pgTable(
 		index("refresh_tokens_hash_idx").on(table.tokenHash),
 		index("refresh_tokens_family_idx").on(table.familyId),
 		index("refresh_tokens_expires_idx").on(table.expiresAt),
+		pgPolicy("refresh_tokens_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "all",
+			using: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+			withCheck: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		pgPolicy("refresh_tokens_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "all",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
 	],
-);
-
-export const accessTokensRelations = relations(accessTokens, ({ one }) => ({
-	user: one(users, {
-		fields: [accessTokens.userId],
-		references: [users.id],
-	}),
-}));
+).enableRLS();
 
 export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
 	user: one(users, {
@@ -310,8 +472,6 @@ export const refreshTokensRelations = relations(refreshTokens, ({ one }) => ({
 	}),
 }));
 
-export interface AccessToken extends InferSelectModel<typeof accessTokens> {}
-export interface NewAccessToken extends InferInsertModel<typeof accessTokens> {}
 export interface RefreshToken extends InferSelectModel<typeof refreshTokens> {}
 export interface NewRefreshToken extends InferInsertModel<typeof refreshTokens> {}
 
@@ -337,26 +497,70 @@ export const projects = pgTable(
 			.on(table.isPublic)
 			.where(sql`${table.isPublic} = true`),
 		index("projects_tags_idx").using("gin", table.tags),
-		pgPolicy("projects_select_own_or_public", {
+		// Public can see public projects
+		pgPolicy("projects_select_public", {
 			as: "permissive",
+			to: publicRole,
 			for: "select",
-			using: sql`(user_id = current_setting('app.current_user_id', true)::uuid OR is_public = true)`,
+			using: sql`is_public = true`,
 		}),
-		pgPolicy("projects_insert_own", {
+		// Authenticated users can see their own projects + public ones
+		pgPolicy("projects_select_authenticated", {
 			as: "permissive",
-			for: "insert",
-			withCheck: sql`(user_id = current_setting('app.current_user_id', true)::uuid)`,
+			to: authenticatedRole,
+			for: "select",
+			using: sql`is_public = true OR user_id = current_setting('app.current_user_id', true)::uuid`,
 		}),
+		// Members can see all projects
+		pgPolicy("projects_select_member", {
+			as: "permissive",
+			to: memberRole,
+			for: "select",
+			using: sql`true`,
+		}),
+		// Admins can see all projects
+		pgPolicy("projects_select_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "select",
+			using: sql`true`,
+		}),
+		// Authenticated users can create their own projects
+		pgPolicy("projects_insert_authenticated", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "insert",
+			withCheck: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		// Users can update their own projects
 		pgPolicy("projects_update_own", {
 			as: "permissive",
+			to: authenticatedRole,
 			for: "update",
-			using: sql`(user_id = current_setting('app.current_user_id', true)::uuid)`,
-			withCheck: sql`(user_id = current_setting('app.current_user_id', true)::uuid)`,
+			using: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+			withCheck: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
 		}),
+		// Admins can update any project
+		pgPolicy("projects_update_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "update",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
+		// Users can delete their own projects
 		pgPolicy("projects_delete_own", {
 			as: "permissive",
+			to: authenticatedRole,
 			for: "delete",
-			using: sql`(user_id = current_setting('app.current_user_id', true)::uuid)`,
+			using: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		// Admins can delete any project
+		pgPolicy("projects_delete_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "delete",
+			using: sql`true`,
 		}),
 	],
 ).enableRLS();

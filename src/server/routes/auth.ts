@@ -215,7 +215,7 @@ app.openapi(verifyRoute, async (c) => {
 			userId = identity.userId;
 		}
 
-		const accessToken = await createAccessToken(userId, ["read", "write"], clientId);
+		const accessToken = await createAccessToken(userId, clientId);
 		const familyId = crypto.randomUUID(); // New family for new login (must be UUID)
 		const refreshToken = await createRefreshToken(userId, familyId, clientId);
 
@@ -320,7 +320,6 @@ const getMeRoute = createRoute({
 						userId: z.string(),
 						address: z.string().optional(),
 						user: z.any(),
-						scopes: z.array(z.string()),
 					}),
 				},
 			},
@@ -385,7 +384,6 @@ app.openapi(getMeRoute, async (c) => {
 			userId: payload.userId,
 			address,
 			user,
-			scopes: payload.scopes,
 		},
 		200,
 	);

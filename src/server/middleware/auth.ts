@@ -1,13 +1,13 @@
 import type { Context, Next } from "hono";
 import { eq, and, or, isNull, gte } from "drizzle-orm";
-import { db, apiKeys } from "../../client";
+import { db, apiKeys, users } from "../../client";
 import {
 	hashApiKey,
 	getApiKeyPrefix,
 	isValidApiKeyFormat,
 } from "../utils/crypto";
 import { verifyAccessToken } from "../utils/tokens";
-import type { ApiKey } from "../../schema";
+import type { ApiKey, UserRole } from "../../schema";
 
 // Simple in-memory cache for API keys
 interface CachedKey {
@@ -60,10 +60,8 @@ async function getApiKey(rawKey: string): Promise<ApiKey | null> {
 		});
 
 		if (result) {
-			// Ensure scopes is always an array, preserve new fields
 			const apiKey: ApiKey = {
 				...result,
-				scopes: result.scopes || ["read", "write"],
 				clientName: result.clientName,
 				allowedOrigins: result.allowedOrigins,
 			};
@@ -116,7 +114,7 @@ export async function bearerAuth(c: Context, next: Next) {
 
 	// context variables for use in routes
 	c.set("userId", payload.userId);
-	c.set("userScopes", payload.scopes);
+	c.set("userRole", payload.userRole);
 	c.set("clientId", payload.clientId);
 	c.set("authType", "bearer");
 
@@ -136,7 +134,7 @@ export async function optionalBearerAuth(c: Context, next: Next) {
 
 		if (payload) {
 			c.set("userId", payload.userId);
-			c.set("userScopes", payload.scopes);
+			c.set("userRole", payload.userRole);
 			c.set("clientId", payload.clientId);
 			c.set("authType", "bearer");
 		}
@@ -159,14 +157,14 @@ export async function apiKeyAuth(c: Context, next: Next) {
 	}
 
 	// Check for root key (environment variable)
-	// This key bypasses database checks and has all permissions
+	// This key bypasses database checks and has admin role
 	const rootKey = process.env.API_KEY || Bun.env?.API_KEY;
 
 	if (rootKey && apiKey === rootKey) {
-		// Root key has all permissions and bypasses database
+		// Root key has admin role
 		c.set("apiKeyType", "root");
-		c.set("apiKeyScopes", ["read", "write", "admin", "root"]);
 		c.set("userId", "root");
+		c.set("userRole", "admin" as UserRole);
 		c.set("authType", "apikey");
 		await next();
 		return;
@@ -184,10 +182,16 @@ export async function apiKeyAuth(c: Context, next: Next) {
 		return c.json({ error: "Invalid API key" }, 401);
 	}
 
+	// Fetch user to get role
+	const user = await db.query.users.findFirst({
+		where: eq(users.id, keyData.userId),
+	});
+
 	// Set context variables for use in routes
 	c.set("apiKeyId", keyData.id);
 	c.set("userId", keyData.userId);
-	c.set("apiKeyScopes", keyData.scopes || ["read", "write"]);
+	c.set("userRole", user?.role || 'authenticated');
+	c.set("clientName", keyData.clientName);
 	c.set("apiKeyType", "database");
 	c.set("authType", "apikey");
 
@@ -211,10 +215,10 @@ export async function optionalApiKey(c: Context, next: Next) {
 	const rootKey = process.env.API_KEY || Bun.env?.API_KEY;
 
 	if (rootKey && apiKey === rootKey) {
-		// Root key has all permissions and bypasses database
+		// Root key has admin role
 		c.set("apiKeyType", "root");
-		c.set("apiKeyScopes", ["read", "write", "admin", "root"]);
 		c.set("apiKeyUserId", "root");
+		c.set("userRole", "admin" as UserRole);
 		c.set("authType", "apikey");
 		await next();
 		return;
@@ -238,10 +242,15 @@ export async function optionalApiKey(c: Context, next: Next) {
 		return;
 	}
 
+	// Fetch user to get role
+	const user = await db.query.users.findFirst({
+		where: eq(users.id, keyData.userId),
+	});
+
 	// Set context variables for use in routes (for rate limiting and client identification)
 	c.set("apiKeyId", keyData.id);
 	c.set("apiKeyUserId", keyData.userId);
-	c.set("apiKeyScopes", keyData.scopes || ["read", "write"]);
+	c.set("userRole", user?.role || 'authenticated');
 	c.set("apiKeyType", "database");
 	c.set("clientName", keyData.clientName);
 	c.set("allowedOrigins", keyData.allowedOrigins);
@@ -265,7 +274,7 @@ export async function combinedAuth(c: Context, next: Next) {
 
 		if (payload) {
 			c.set("userId", payload.userId);
-			c.set("userScopes", payload.scopes);
+			c.set("userRole", payload.userRole);
 			c.set("clientId", payload.clientId);
 			c.set("authType", "bearer");
 			await next();
@@ -280,8 +289,8 @@ export async function combinedAuth(c: Context, next: Next) {
 
 		if (rootKey && apiKey === rootKey) {
 			c.set("apiKeyType", "root");
-			c.set("apiKeyScopes", ["read", "write", "admin", "root"]);
 			c.set("userId", "root");
+			c.set("userRole", "admin" as UserRole);
 			c.set("authType", "apikey");
 			await next();
 			return;
@@ -292,9 +301,14 @@ export async function combinedAuth(c: Context, next: Next) {
 			const keyData = await getApiKey(apiKey);
 
 			if (keyData) {
+				// Fetch user to get role
+				const user = await db.query.users.findFirst({
+					where: eq(users.id, keyData.userId),
+				});
+
 				c.set("apiKeyId", keyData.id);
 				c.set("userId", keyData.userId);
-				c.set("apiKeyScopes", keyData.scopes || ["read", "write"]);
+				c.set("userRole", user?.role || 'authenticated');
 				c.set("apiKeyType", "database");
 				c.set("authType", "apikey");
 				await next();
@@ -310,33 +324,38 @@ export async function combinedAuth(c: Context, next: Next) {
 }
 
 /**
- * Scope checking middleware
- * Use after auth middleware to check if the user/key has required scopes
+ * Role checking middleware
+ * Use after auth middleware to check if the user has required role level
  */
-export function requireScopes(...requiredScopes: string[]) {
+export function requireRole(minRole: UserRole) {
 	return async (c: Context, next: Next) => {
-		const authType = c.get("authType");
-		const scopes = authType === "bearer" 
-			? (c.get("userScopes") as string[]) 
-			: (c.get("apiKeyScopes") as string[]) || [];
+		const userRole = c.get("userRole") as UserRole | undefined;
 
-		// Root and admin scopes have access to everything
-		if (scopes.includes("root") || scopes.includes("admin")) {
-			await next();
-			return;
+		if (!userRole) {
+			return c.json(
+				{ error: "Authentication required" },
+				401,
+			);
 		}
 
-		// Check if key has all required scopes
-		const hasAllScopes = requiredScopes.every((scope) =>
-			scopes.includes(scope),
-		);
+		// Define role hierarchy
+		const roleHierarchy: Record<UserRole | 'public', number> = {
+			'public': 0,
+			'authenticated': 1,
+			'member': 2,
+			'admin': 3,
+		};
 
-		if (!hasAllScopes) {
+		// Handle public/unauthenticated case
+		const currentLevel = roleHierarchy[userRole] ?? 0;
+		const requiredLevel = roleHierarchy[minRole] ?? 1;
+
+		if (currentLevel < requiredLevel) {
 			return c.json(
 				{
 					error: "Insufficient permissions",
-					required: requiredScopes,
-					available: scopes,
+					required: minRole,
+					current: userRole,
 				},
 				403,
 			);
@@ -352,6 +371,10 @@ export function requireScopes(...requiredScopes: string[]) {
 export function clearApiKeyCache() {
 	keyCache.clear();
 }
+
+export const requireAuth = requireRole('authenticated');
+export const requireMembership = requireRole('member');
+export const requireAdmin = requireRole('admin');
 
 // Export old function names for backward compatibility (will be removed)
 export const requireJwtAuth = bearerAuth;
