@@ -287,48 +287,32 @@ export class CartelClient {
 		guildId: string,
 		duration: number,
 	) {
-		return this.request("/api/discord/vanish", {
+		return this.request("/api/vanish/discord", {
 			method: "POST",
 			body: JSON.stringify({ channelId, guildId, duration }),
 		});
 	}
 
 	async removeVanishingChannel(channelId: string) {
-		return this.request(`/api/discord/vanish/${channelId}`, {
+		return this.request(`/api/vanish/discord/${channelId}`, {
 			method: "DELETE",
 		});
 	}
 
 	async getVanishingChannels(guildId?: string) {
 		const params = guildId ? `?guildId=${guildId}` : "";
-		return this.request(`/api/discord/vanish${params}`);
+		return this.request(`/api/vanish/discord${params}`);
 	}
 
 	async getVanishingChannel(channelId: string) {
-		return this.request(`/api/discord/vanish/${channelId}`);
+		return this.request(`/api/vanish/discord/${channelId}`);
 	}
 
 	async updateVanishingChannelStats(channelId: string, deletedCount: number) {
-		return this.request(`/api/discord/vanish/${channelId}/stats`, {
+		return this.request(`/api/vanish/discord/${channelId}/stats`, {
 			method: "PATCH",
 			body: JSON.stringify({ deletedCount }),
 		});
-	}
-
-	// Guild Channels
-	async setChannel(guildId: string, key: string, channelId: string) {
-		return this.request("/api/discord/channels", {
-			method: "POST",
-			body: JSON.stringify({ guildId, key, channelId }),
-		});
-	}
-
-	async getChannel(guildId: string, key: string) {
-		return this.request(`/api/discord/channels/${guildId}/${key}`);
-	}
-
-	async getGuildChannels(guildId: string) {
-		return this.request(`/api/discord/channels/${guildId}`);
 	}
 
 	// Practice Sessions

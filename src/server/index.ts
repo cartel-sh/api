@@ -6,8 +6,7 @@ import { config } from "dotenv";
 import { optionalApiKey } from "./middleware/auth";
 
 import packageJson from "../../package.json" with { type: "json" };
-import vanish from "./routes/discord/vanish";
-import channels from "./routes/discord/channels";
+import vanishDiscord from "./routes/vanish/discord";
 import practice from "./routes/sessions/practice";
 import applications from "./routes/users/applications";
 import id from "./routes/users/id";
@@ -57,8 +56,7 @@ app.use(
 app.use("*", logger());
 app.use("/api/*", optionalApiKey);
 
-app.route("/api/discord/vanish", vanish);
-app.route("/api/discord/channels", channels);
+app.route("/api/vanish/discord", vanishDiscord);
 app.route("/api/sessions/practice", practice);
 app.route("/api/users/applications", applications);
 app.route("/api/users/id", id);
@@ -115,8 +113,7 @@ app.get("/", (c) =>
 		documentation: "/docs",
 		openapi: "/openapi.json",
 		endpoints: [
-			"/api/discord/vanish",
-			"/api/discord/channels",
+			"/api/vanish/discord",
 			"/api/sessions/practice",
 			"/api/users/applications",
 			"/api/users/id",

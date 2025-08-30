@@ -78,6 +78,13 @@
       "when": 1756550858679,
       "tag": "0010_wild_frank_castle",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1756559218642,
+      "tag": "0011_melted_black_tarantula",
+      "breakpoints": true
     }
   ]
 }

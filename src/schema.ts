@@ -230,28 +230,6 @@ export const practiceSessionsRelations = relations(
 	}),
 );
 
-export const channelSettings = pgTable(
-	"channel_settings",
-	{
-		id: uuid("id").primaryKey().defaultRandom(),
-		guildId: text("guild_id").notNull(),
-		key: text("key").notNull(), // e.g., 'voice', 'text', 'alerts', etc.
-		channelId: text("channel_id").notNull(),
-		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-		updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-	},
-	(table) => [
-		index("channel_settings_guild_key_idx").on(table.guildId, table.key),
-		pgPolicy("channel_settings_admin_all", {
-			as: "permissive",
-			to: adminRole,
-			for: "all",
-			using: sql`true`,
-			withCheck: sql`true`,
-		}),
-	],
-).enableRLS();
-
 export interface User extends InferSelectModel<typeof users> {
 	role: UserRole;
 }
@@ -277,11 +255,6 @@ export interface PracticeSession
 }
 export interface NewPracticeSession
 	extends InferInsertModel<typeof practiceSessions> {}
-
-export interface ChannelSetting
-	extends InferSelectModel<typeof channelSettings> {}
-export interface NewChannelSetting
-	extends InferInsertModel<typeof channelSettings> {}
 
 export const applications = pgTable(
 	"applications",
