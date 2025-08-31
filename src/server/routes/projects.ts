@@ -140,24 +140,16 @@ app.openapi(listProjectsRoute, async (c) => {
 	const results = await withUser(null, null, async (tx) => {
 		const conditions: any[] = [];
 
-		if (!isAdmin && !isMember) {
-			// Public users can only see public projects
-			if (publicFilter === "false") {
-				return [];
-			}
-			conditions.push(eq(projects.isPublic, true));
-		} else if (publicFilter !== "all") {
-			conditions.push(eq(projects.isPublic, publicFilter === "true"));
+		// For unauthenticated users, only show public projects
+		if (publicFilter === "false") {
+			return [];
 		}
+		conditions.push(eq(projects.isPublic, true));
 
 		if (userId) {
-			if (!isAdmin && !isMember) {
-				conditions.push(
-					and(eq(projects.userId, userId), eq(projects.isPublic, true)),
-				);
-			} else {
-				conditions.push(eq(projects.userId, userId));
-			}
+			conditions.push(
+				and(eq(projects.userId, userId), eq(projects.isPublic, true)),
+			);
 		}
 
 		if (search) {
