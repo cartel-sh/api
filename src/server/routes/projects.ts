@@ -96,6 +96,19 @@ app.openapi(listProjectsRoute, async (c) => {
 		const results = await withUser(currentUserId, userRole || null, async (tx) => {
 			const conditions: any[] = [];
 
+			// Handle visibility filtering for authenticated users
+			if (!isAdmin && !isMember && publicFilter !== "all") {
+				// Regular authenticated users can only see public projects (unless requesting their own)
+				if (publicFilter === "false") {
+					// Only show their own private projects
+					conditions.push(and(eq(projects.userId, currentUserId), eq(projects.isPublic, false)));
+				} else if (publicFilter === "true") {
+					conditions.push(eq(projects.isPublic, true));
+				}
+			} else if (publicFilter !== "all") {
+				conditions.push(eq(projects.isPublic, publicFilter === "true"));
+			}
+
 			if (search) {
 				conditions.push(
 					or(
