@@ -306,7 +306,7 @@ app.openapi(createProjectRoute, async (c) => {
 		const newProject: NewProject = {
 			...data,
 			userId: currentUserId,
-			tags: data.tags || [],
+			tags: data.tags && data.tags.length > 0 ? data.tags : undefined,
 		};
 
 		logger.debug("Creating project with data", {
