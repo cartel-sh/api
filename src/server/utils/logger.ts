@@ -64,7 +64,7 @@ const createLoggerConfig = (config: LoggerConfig): pino.LoggerOptions => {
 		...(config.service && { service: config.service }),
 	};
 
-	if (config.pretty && process.env.NODE_ENV !== "production") {
+	if (config.pretty) {
 		return {
 			...baseConfig,
 			transport: {
@@ -85,7 +85,7 @@ const createLoggerConfig = (config: LoggerConfig): pino.LoggerOptions => {
 
 const loggerConfig: LoggerConfig = {
 	verbosity: getVerbosityFromEnv(),
-	pretty: process.env.NODE_ENV !== "production",
+	pretty: true, // Always pretty for better readability in all environments
 	service: "cartel-api",
 };
 

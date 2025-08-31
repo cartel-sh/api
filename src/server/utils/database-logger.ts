@@ -45,7 +45,7 @@ export class DatabaseLogger {
 				timestamp: new Date(),
 				level: entry.level || 'info',
 				message: entry.message || '',
-				data: entry.data ? JSON.stringify(entry.data) : null,
+				data: entry.data || null,
 				route: entry.route || null,
 				method: entry.method || null,
 				path: entry.path || null,

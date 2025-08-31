@@ -1,0 +1,1 @@
+ALTER TABLE "logs" ALTER COLUMN "data" SET DATA TYPE json;

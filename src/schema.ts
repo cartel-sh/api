@@ -8,6 +8,7 @@ import {
 	boolean,
 	index,
 	integer,
+	json,
 	pgTable,
 	pgPolicy,
 	pgRole,
@@ -558,7 +559,7 @@ export const logs = pgTable(
 		timestamp: timestamp("timestamp", { withTimezone: true }).notNull().defaultNow(),
 		level: text("level").notNull().$type<'info' | 'warn' | 'error' | 'fatal'>(),
 		message: text("message").notNull(),
-		data: text("data"), // JSON string for structured data
+		data: json("data"), // JSON for structured information
 		
 		route: text("route"), // e.g., "GET /api/users"
 		method: text("method"), // HTTP method

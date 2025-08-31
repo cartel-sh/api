@@ -307,7 +307,7 @@ export const LogEntrySchema = z.object({
 	timestamp: z.string(),
 	level: z.string(),
 	message: z.string(),
-	data: z.string().nullable(),
+	data: z.any().nullable(),
 	route: z.string().nullable(),
 	method: z.string().nullable(),
 	path: z.string().nullable(),
