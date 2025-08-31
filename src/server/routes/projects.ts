@@ -7,7 +7,13 @@ import {
 	CreateProjectSchema,
 	UpdateProjectSchema,
 	ProjectSchema,
+	ProjectWithUserSchema,
+	ProjectQuerySchema,
+	ProjectListResponseSchema,
+	PopularTagsResponseSchema,
 	ErrorResponseSchema,
+	ErrorWithDetailsResponseSchema,
+	SuccessResponseSchema,
 } from "../../shared/schemas";
 
 type Variables = {
@@ -22,44 +28,28 @@ const app = new OpenAPIHono<{ Variables: Variables }>();
 
 app.use("*", withJwtAuth);
 
-// Schemas are imported from shared/schemas.ts
-
-const querySchema = z.object({
-	search: z.string().optional(),
-	tags: z.string().optional(),
-	userId: z.string().optional(),
-	public: z.enum(["true", "false", "all"]).default("true"),
-	limit: z.coerce.number().default(50),
-	offset: z.coerce.number().default(0),
-});
-
 const listProjectsRoute = createRoute({
 	method: "get",
 	path: "/",
 	description: "List projects with optional filtering by search terms, tags, user, and visibility",
 	summary: "List projects",
 	request: {
-		query: querySchema,
+		query: ProjectQuerySchema,
 	},
 	responses: {
 		200: {
 			description: "List of projects",
 			content: {
 				"application/json": {
-					schema: z.array(
-						z.object({
-							id: z.string(),
-							title: z.string(),
-							description: z.string(),
-							githubUrl: z.string().nullable(),
-							deploymentUrl: z.string().nullable(),
-							tags: z.array(z.string()).nullable(),
-							isPublic: z.boolean(),
-							userId: z.string(),
-							createdAt: z.string().nullable(),
-							updatedAt: z.string().nullable(),
-						}),
-					),
+					schema: ProjectListResponseSchema,
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: ErrorWithDetailsResponseSchema,
 				},
 			},
 		},
@@ -68,18 +58,22 @@ const listProjectsRoute = createRoute({
 });
 
 app.openapi(listProjectsRoute, async (c) => {
-	const {
-		search,
-		tags,
-		userId,
-		public: publicFilter,
-		limit,
-		offset,
-	} = c.req.valid("query");
-	const currentUserId = c.get("userId");
-	const userRole = c.get("userRole") as UserRole | undefined;
-	const isAdmin = userRole === 'admin';
-	const isMember = userRole === 'member';
+	try {
+		const {
+			search,
+			tags,
+			userId,
+			public: publicFilter,
+			limit,
+			offset,
+		} = c.req.valid("query");
+		const currentUserId = c.get("userId");
+		const userRole = c.get("userRole") as UserRole | undefined;
+		const isAdmin = userRole === 'admin';
+		const isMember = userRole === 'member';
+
+		console.log("List projects query:", { search, tags, userId, publicFilter, limit, offset });
+		console.log("Current user:", { currentUserId, userRole, isAdmin, isMember });
 
 	if (currentUserId) {
 		const results = await withUser(currentUserId, userRole || null, async (tx) => {
@@ -171,6 +165,16 @@ app.openapi(listProjectsRoute, async (c) => {
 	});
 
 	return c.json(results);
+	} catch (error) {
+		console.error("Error listing projects:", error);
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		console.error("Error details:", {
+			message: errorMessage,
+			stack: error instanceof Error ? error.stack : undefined,
+			name: error instanceof Error ? error.name : undefined
+		});
+		return c.json({ error: "Internal server error", details: errorMessage }, 500);
+	}
 });
 
 const getProjectRoute = createRoute({
@@ -188,19 +192,7 @@ const getProjectRoute = createRoute({
 			description: "Project details",
 			content: {
 				"application/json": {
-					schema: z.object({
-						id: z.string(),
-						title: z.string(),
-						description: z.string(),
-						githubUrl: z.string().nullable(),
-						deploymentUrl: z.string().nullable(),
-						tags: z.array(z.string()).nullable(),
-						isPublic: z.boolean(),
-						userId: z.string(),
-						createdAt: z.string().nullable(),
-						updatedAt: z.string().nullable(),
-						user: z.any().optional(),
-					}),
+					schema: ProjectWithUserSchema,
 				},
 			},
 		},
@@ -208,9 +200,7 @@ const getProjectRoute = createRoute({
 			description: "Project not found",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -218,9 +208,7 @@ const getProjectRoute = createRoute({
 			description: "Access denied",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -270,18 +258,7 @@ const createProjectRoute = createRoute({
 			description: "Project created",
 			content: {
 				"application/json": {
-					schema: z.object({
-						id: z.string(),
-						title: z.string(),
-						description: z.string(),
-						githubUrl: z.string().nullable(),
-						deploymentUrl: z.string().nullable(),
-						tags: z.array(z.string()).nullable(),
-						isPublic: z.boolean(),
-						userId: z.string(),
-						createdAt: z.string().nullable(),
-						updatedAt: z.string().nullable(),
-					}),
+					schema: ProjectSchema,
 				},
 			},
 		},
@@ -289,9 +266,15 @@ const createProjectRoute = createRoute({
 			description: "Authentication required",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
+				},
+			},
+		},
+		500: {
+			description: "Internal server error",
+			content: {
+				"application/json": {
+					schema: ErrorWithDetailsResponseSchema,
 				},
 			},
 		},
@@ -300,22 +283,41 @@ const createProjectRoute = createRoute({
 });
 
 app.openapi(createProjectRoute, async (c) => {
-	const data = c.req.valid("json");
-	const currentUserId = c.get("userId")!;
-	const userRole = c.get("userRole")!;
+	try {
+		const data = c.req.valid("json");
+		const currentUserId = c.get("userId")!;
+		const userRole = c.get("userRole")!;
 
-	const newProject: NewProject = {
-		...data,
-		userId: currentUserId,
-		tags: data.tags || [],
-	};
+		console.log("Create project request data:", JSON.stringify(data, null, 2));
+		console.log("Current user ID:", currentUserId);
+		console.log("User role:", userRole);
 
-	const result = await withUser(currentUserId, userRole, async (tx) => {
-		const [project] = await tx.insert(projects).values(newProject).returning();
-		return project;
-	});
+		const newProject: NewProject = {
+			...data,
+			userId: currentUserId,
+			tags: data.tags || [],
+		};
 
-	return c.json(result, 201);
+		console.log("New project object:", JSON.stringify(newProject, null, 2));
+
+		const result = await withUser(currentUserId, userRole, async (tx) => {
+			console.log("About to insert project into database");
+			const [project] = await tx.insert(projects).values(newProject).returning();
+			console.log("Project inserted successfully:", JSON.stringify(project, null, 2));
+			return project;
+		});
+
+		return c.json(result, 201);
+	} catch (error) {
+		console.error("Error creating project:", error);
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		console.error("Error details:", {
+			message: errorMessage,
+			stack: error instanceof Error ? error.stack : undefined,
+			name: error instanceof Error ? error.name : undefined
+		});
+		return c.json({ error: "Internal server error", details: errorMessage }, 500);
+	}
 });
 
 const updateProjectRoute = createRoute({
@@ -341,18 +343,7 @@ const updateProjectRoute = createRoute({
 			description: "Project updated",
 			content: {
 				"application/json": {
-					schema: z.object({
-						id: z.string(),
-						title: z.string(),
-						description: z.string(),
-						githubUrl: z.string().nullable(),
-						deploymentUrl: z.string().nullable(),
-						tags: z.array(z.string()).nullable(),
-						isPublic: z.boolean(),
-						userId: z.string(),
-						createdAt: z.string().nullable(),
-						updatedAt: z.string().nullable(),
-					}),
+					schema: ProjectSchema,
 				},
 			},
 		},
@@ -360,9 +351,7 @@ const updateProjectRoute = createRoute({
 			description: "Project not found or access denied",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -411,9 +400,7 @@ const deleteProjectRoute = createRoute({
 			description: "Project deleted",
 			content: {
 				"application/json": {
-					schema: z.object({
-						success: z.boolean(),
-					}),
+					schema: SuccessResponseSchema,
 				},
 			},
 		},
@@ -421,9 +408,7 @@ const deleteProjectRoute = createRoute({
 			description: "Project not found or access denied",
 			content: {
 				"application/json": {
-					schema: z.object({
-						error: z.string(),
-					}),
+					schema: ErrorResponseSchema,
 				},
 			},
 		},
@@ -461,20 +446,7 @@ const getUserProjectsRoute = createRoute({
 			description: "User's projects",
 			content: {
 				"application/json": {
-					schema: z.array(
-						z.object({
-							id: z.string(),
-							title: z.string(),
-							description: z.string(),
-							githubUrl: z.string().nullable(),
-							deploymentUrl: z.string().nullable(),
-							tags: z.array(z.string()).nullable(),
-							isPublic: z.boolean(),
-							userId: z.string(),
-							createdAt: z.string().nullable(),
-							updatedAt: z.string().nullable(),
-						}),
-					),
+					schema: ProjectListResponseSchema,
 				},
 			},
 		},
@@ -509,12 +481,7 @@ const getPopularTagsRoute = createRoute({
 			description: "Popular project tags",
 			content: {
 				"application/json": {
-					schema: z.array(
-						z.object({
-							tag: z.string(),
-							count: z.number(),
-						}),
-					),
+					schema: PopularTagsResponseSchema,
 				},
 			},
 		},

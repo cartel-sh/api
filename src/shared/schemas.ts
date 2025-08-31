@@ -212,6 +212,28 @@ export const ProjectSchema = z.object({
 	updatedAt: z.string().nullable(),
 });
 
+export const ProjectWithUserSchema = ProjectSchema.extend({
+	user: z.any().optional(),
+});
+
+export const ProjectQuerySchema = z.object({
+	search: z.string().optional(),
+	tags: z.string().optional(),
+	userId: z.string().optional(),
+	public: z.enum(["true", "false", "all"]).default("true"),
+	limit: z.coerce.number().default(50),
+	offset: z.coerce.number().default(0),
+});
+
+export const PopularTagSchema = z.object({
+	tag: z.string(),
+	count: z.number(),
+});
+
+export const ProjectListResponseSchema = z.array(ProjectSchema);
+
+export const PopularTagsResponseSchema = z.array(PopularTagSchema);
+
 // ============================================
 // Common Schemas
 // ============================================
@@ -222,6 +244,37 @@ export const SuccessResponseSchema = z.object({
 
 export const ErrorResponseSchema = z.object({
 	error: z.string(),
+});
+
+export const ErrorWithMessageResponseSchema = ErrorResponseSchema.extend({
+	message: z.string().optional(),
+});
+
+export const ErrorWithDetailsResponseSchema = z.object({
+	error: z.string(),
+	details: z.string(),
+});
+
+// ============================================
+// Auth Additional Schemas
+// ============================================
+
+export const AuthHeadersSchema = z.object({
+	"X-API-Key": z.string().optional(),
+});
+
+export const RefreshTokenRequestSchema = z.object({
+	refreshToken: z.string().describe("The refresh token"),
+});
+
+export const UserMeResponseSchema = z.object({
+	userId: z.string(),
+	address: z.string().optional(),
+	user: z.any(),
+});
+
+export const RevokeTokensResponseSchema = z.object({
+	message: z.string(),
 });
 
 // ============================================
@@ -256,6 +309,15 @@ export type AddUserIdentity = z.infer<typeof AddUserIdentitySchema>;
 export type CreateProject = z.infer<typeof CreateProjectSchema>;
 export type UpdateProject = z.infer<typeof UpdateProjectSchema>;
 export type Project = z.infer<typeof ProjectSchema>;
+export type ProjectWithUser = z.infer<typeof ProjectWithUserSchema>;
+export type ProjectQuery = z.infer<typeof ProjectQuerySchema>;
+export type PopularTag = z.infer<typeof PopularTagSchema>;
 
 export type SuccessResponse = z.infer<typeof SuccessResponseSchema>;
 export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
+export type ErrorWithMessageResponse = z.infer<typeof ErrorWithMessageResponseSchema>;
+export type ErrorWithDetailsResponse = z.infer<typeof ErrorWithDetailsResponseSchema>;
+export type AuthHeaders = z.infer<typeof AuthHeadersSchema>;
+export type RefreshTokenRequest = z.infer<typeof RefreshTokenRequestSchema>;
+export type UserMeResponse = z.infer<typeof UserMeResponseSchema>;
+export type RevokeTokensResponse = z.infer<typeof RevokeTokensResponseSchema>;

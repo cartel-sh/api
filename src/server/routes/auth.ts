@@ -7,6 +7,11 @@ import {
 	RefreshResponseSchema,
 	SiweVerifyRequestSchema,
 	ErrorResponseSchema,
+	ErrorWithMessageResponseSchema,
+	AuthHeadersSchema,
+	RefreshTokenRequestSchema,
+	UserMeResponseSchema,
+	RevokeTokensResponseSchema,
 } from "../../shared/schemas";
 import {
 	hashApiKey,
@@ -44,9 +49,7 @@ const verifyRoute = createRoute({
 				},
 			},
 		},
-		headers: z.object({
-			"X-API-Key": z.string().optional(),
-		}),
+		headers: AuthHeadersSchema,
 	},
 	responses: {
 		200: {
@@ -61,9 +64,7 @@ const verifyRoute = createRoute({
 			description: "Bad request",
 			content: {
 				"application/json": {
-					schema: ErrorResponseSchema.extend({
-						message: z.string().optional(),
-					}),
+					schema: ErrorWithMessageResponseSchema,
 				},
 			},
 		},
@@ -236,9 +237,7 @@ const refreshRoute = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						refreshToken: z.string().describe("The refresh token"),
-					}),
+					schema: RefreshTokenRequestSchema,
 				},
 			},
 		},
@@ -299,11 +298,7 @@ const getMeRoute = createRoute({
 			description: "Current user information",
 			content: {
 				"application/json": {
-					schema: z.object({
-						userId: z.string(),
-						address: z.string().optional(),
-						user: z.any(),
-					}),
+					schema: UserMeResponseSchema,
 				},
 			},
 		},
@@ -383,9 +378,7 @@ const revokeRoute = createRoute({
 			description: "Successfully revoked tokens",
 			content: {
 				"application/json": {
-					schema: z.object({
-						message: z.string(),
-					}),
+					schema: RevokeTokensResponseSchema,
 				},
 			},
 		},

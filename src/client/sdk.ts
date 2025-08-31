@@ -364,10 +364,35 @@ class UsersNamespace {
 class ProjectsNamespace {
 	constructor(private client: CartelClient) {}
 
+	async list(params?: {
+		search?: string;
+		tags?: string;
+		userId?: string;
+		public?: "true" | "false" | "all";
+		limit?: number;
+		offset?: number;
+	}): Promise<Project[]> {
+		const searchParams = new URLSearchParams();
+		if (params?.search) searchParams.set("search", params.search);
+		if (params?.tags) searchParams.set("tags", params.tags);
+		if (params?.userId) searchParams.set("userId", params.userId);
+		if (params?.public) searchParams.set("public", params.public);
+		if (params?.limit) searchParams.set("limit", params.limit.toString());
+		if (params?.offset) searchParams.set("offset", params.offset.toString());
+
+		const queryString = searchParams.toString();
+		const endpoint = queryString ? `/api/projects?${queryString}` : "/api/projects";
+		
+		return this.client.request<Project[]>(endpoint);
+	}
+
 	async create(params: {
-		name: string;
-		description?: string;
-		metadata?: Record<string, any>;
+		title: string;
+		description: string;
+		githubUrl?: string | null;
+		deploymentUrl?: string | null;
+		tags?: string[];
+		isPublic?: boolean;
 	}): Promise<Project> {
 		return this.client.request<Project>("/api/projects", {
 			method: "POST",
@@ -382,9 +407,12 @@ class ProjectsNamespace {
 	async update(
 		projectId: string,
 		params: {
-			name?: string;
+			title?: string;
 			description?: string;
-			metadata?: Record<string, any>;
+			githubUrl?: string | null;
+			deploymentUrl?: string | null;
+			tags?: string[];
+			isPublic?: boolean;
 		}
 	): Promise<Project> {
 		return this.client.request<Project>(`/api/projects/${projectId}`, {
