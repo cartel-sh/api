@@ -1,1 +1,1 @@
-ALTER TABLE "logs" ALTER COLUMN "data" SET DATA TYPE json;
+ALTER TABLE "logs" ALTER COLUMN "data" SET DATA TYPE json USING data::json;
