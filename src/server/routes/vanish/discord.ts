@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { eq } from "drizzle-orm";
 import { db, vanishingChannels } from "../../../client";
+import { requestLogging } from "../../middleware/logging";
 import {
 	CreateVanishingChannelSchema,
 	VanishingChannelSchema,
@@ -10,7 +11,14 @@ import {
 	type VanishingChannel,
 } from "../../../shared/schemas";
 
-const app = new OpenAPIHono();
+type Variables = {
+	userId?: string;
+	logger?: any;
+};
+
+const app = new OpenAPIHono<{ Variables: Variables }>();
+
+app.use("*", requestLogging());
 const createVanishingChannelRoute = createRoute({
 	method: "post",
 	path: "/",
@@ -47,9 +55,23 @@ const createVanishingChannelRoute = createRoute({
 });
 
 app.openapi(createVanishingChannelRoute, async (c) => {
+	const logger = c.get("logger");
 	const { channelId, guildId, duration } = c.req.valid("json");
 
+	logger.info("Creating vanishing channel configuration", {
+		channelId,
+		guildId,
+		duration,
+		durationHours: Math.round((duration / 3600) * 10) / 10,
+	});
+
 	try {
+		logger.logDatabase("upsert", "vanishingChannels", {
+			channelId,
+			guildId,
+			duration,
+			action: "create_or_update_vanishing_channel",
+		});
 		await db
 			.insert(vanishingChannels)
 			.values({
@@ -67,9 +89,15 @@ app.openapi(createVanishingChannelRoute, async (c) => {
 				},
 			});
 
+		logger.info("Vanishing channel configured successfully", {
+			channelId,
+			guildId,
+			duration,
+		});
+
 		return c.json({ success: true }, 200);
 	} catch (error) {
-		console.error("[API] Error setting vanishing channel:", error);
+		logger.error("Vanishing channel configuration failed", error);
 		return c.json({ error: "Failed to set vanishing channel" }, 500);
 	}
 });
@@ -106,16 +134,24 @@ const deleteVanishingChannelRoute = createRoute({
 });
 
 app.openapi(deleteVanishingChannelRoute, async (c) => {
+	const logger = c.get("logger");
 	const { channelId } = c.req.valid("param");
 
+	logger.info("Deleting vanishing channel configuration", { channelId });
+
 	try {
+		logger.logDatabase("delete", "vanishingChannels", {
+			channelId,
+		});
 		await db
 			.delete(vanishingChannels)
 			.where(eq(vanishingChannels.channelId, channelId));
 
+		logger.info("Vanishing channel configuration deleted successfully", { channelId });
+
 		return c.json({ success: true }, 200);
 	} catch (error) {
-		console.error("[API] Error removing vanishing channel:", error);
+		logger.error("Vanishing channel deletion failed", error);
 		return c.json({ error: "Failed to remove vanishing channel" }, 500);
 	}
 });
@@ -152,16 +188,29 @@ const listVanishingChannelsRoute = createRoute({
 });
 
 app.openapi(listVanishingChannelsRoute, async (c) => {
+	const logger = c.get("logger");
 	const { guildId } = c.req.valid("query");
+
+	logger.info("Listing vanishing channels", {
+		guildId: guildId || "all_guilds",
+		filtered: !!guildId,
+	});
 
 	try {
 		let channels;
 
 		if (guildId) {
+			logger.logDatabase("query", "vanishingChannels", {
+				action: "find_by_guild_id",
+				guildId,
+			});
 			channels = await db.query.vanishingChannels.findMany({
 				where: eq(vanishingChannels.guildId, guildId),
 			});
 		} else {
+			logger.logDatabase("query", "vanishingChannels", {
+				action: "find_all",
+			});
 			channels = await db.query.vanishingChannels.findMany();
 		}
 
@@ -175,9 +224,19 @@ app.openapi(listVanishingChannelsRoute, async (c) => {
 			updatedAt: channel.updatedAt?.toISOString() || null,
 		}));
 
+		const totalMessages = formattedChannels.reduce((sum, ch) => sum + ch.messagesDeleted, 0);
+		const guilds = new Set(formattedChannels.map(ch => ch.guildId)).size;
+
+		logger.info("Vanishing channels retrieved successfully", {
+			channelCount: formattedChannels.length,
+			guildCount: guilds,
+			totalMessagesDeleted: totalMessages,
+			guildFilter: guildId || null,
+		});
+
 		return c.json(formattedChannels, 200);
 	} catch (error) {
-		console.error("[API] Error getting vanishing channels:", error);
+		logger.error("Vanishing channels listing failed", error);
 		return c.json({ error: "Failed to get vanishing channels" }, 500);
 	}
 });
@@ -222,14 +281,22 @@ const getVanishingChannelRoute = createRoute({
 });
 
 app.openapi(getVanishingChannelRoute, async (c) => {
+	const logger = c.get("logger");
 	const { channelId } = c.req.valid("param");
 
+	logger.info("Getting vanishing channel details", { channelId });
+
 	try {
+		logger.logDatabase("query", "vanishingChannels", {
+			action: "find_by_channel_id",
+			channelId,
+		});
 		const channel = await db.query.vanishingChannels.findFirst({
 			where: eq(vanishingChannels.channelId, channelId),
 		});
 
 		if (!channel) {
+			logger.warn("Vanishing channel not found", { channelId });
 			return c.json({ error: "Channel not found" }, 404);
 		}
 
@@ -243,9 +310,17 @@ app.openapi(getVanishingChannelRoute, async (c) => {
 			updatedAt: channel.updatedAt?.toISOString() || null,
 		};
 
+		logger.info("Vanishing channel details retrieved successfully", {
+			channelId,
+			guildId: channel.guildId,
+			vanishAfter: channel.vanishAfter,
+			messagesDeleted: formattedChannel.messagesDeleted,
+			lastDeletion: formattedChannel.lastDeletion,
+		});
+
 		return c.json(formattedChannel, 200);
 	} catch (error) {
-		console.error("[API] Error getting vanishing channel:", error);
+		logger.error("Vanishing channel details retrieval failed", error);
 		return c.json({ error: "Failed to get vanishing channel" }, 500);
 	}
 });
@@ -299,33 +374,65 @@ const updateChannelStatsRoute = createRoute({
 });
 
 app.openapi(updateChannelStatsRoute, async (c) => {
+	const logger = c.get("logger");
 	const { channelId } = c.req.valid("param");
 	const { deletedCount } = c.req.valid("json");
 
+	logger.info("Updating vanishing channel stats", {
+		channelId,
+		deletedCount,
+	});
+
 	try {
+		logger.logDatabase("query", "vanishingChannels", {
+			action: "find_current_channel",
+			channelId,
+		});
 		const currentChannel = await db.query.vanishingChannels.findFirst({
 			where: eq(vanishingChannels.channelId, channelId),
 		});
 
 		if (!currentChannel) {
+			logger.warn("Channel not found for stats update", { channelId });
 			return c.json({ error: "Channel not found" }, 404);
 		}
 
-		const newCount =
-			(Number(currentChannel.messagesDeleted) || 0) + deletedCount;
+		const previousCount = Number(currentChannel.messagesDeleted) || 0;
+		const newCount = previousCount + deletedCount;
 
+		logger.info("Calculating updated message count", {
+			channelId,
+			previousCount,
+			deletedCount,
+			newCount,
+		});
+
+		const lastDeletion = new Date();
+		logger.logDatabase("update", "vanishingChannels", {
+			channelId,
+			newCount,
+			lastDeletion: lastDeletion.toISOString(),
+		});
 		await db
 			.update(vanishingChannels)
 			.set({
 				messagesDeleted: newCount,
-				lastDeletion: new Date(),
+				lastDeletion,
 				updatedAt: new Date(),
 			})
 			.where(eq(vanishingChannels.channelId, channelId));
 
+		logger.info("Vanishing channel stats updated successfully", {
+			channelId,
+			previousCount,
+			newCount,
+			deletedCount,
+			lastDeletion: lastDeletion.toISOString(),
+		});
+
 		return c.json({ success: true, newCount }, 200);
 	} catch (error) {
-		console.error("[API] Error updating vanishing channel stats:", error);
+		logger.error("Vanishing channel stats update failed", error);
 		return c.json({ error: "Failed to update channel stats" }, 500);
 	}
 });

@@ -7,9 +7,16 @@ import {
 	getApiKeyPrefix,
 } from "../../utils/crypto";
 import { requireJwtAuth } from "../../middleware/auth";
+import { requestLogging } from "../../middleware/logging";
 
-const app = new OpenAPIHono();
+type Variables = {
+	userId?: string;
+	logger?: any;
+};
 
+const app = new OpenAPIHono<{ Variables: Variables }>();
+
+app.use("*", requestLogging());
 app.use("*", requireJwtAuth);
 
 const createApiKeyRoute = createRoute({
@@ -81,6 +88,7 @@ const createApiKeyRoute = createRoute({
 });
 
 app.openapi(createApiKeyRoute, async (c) => {
+	const logger = c.get("logger");
 	const {
 		userId,
 		name,
@@ -90,12 +98,23 @@ app.openapi(createApiKeyRoute, async (c) => {
 		expiresIn,
 	} = c.req.valid("json");
 
+	logger.info("Admin creating API key", {
+		userId,
+		name,
+		clientName,
+		hasDescription: !!description,
+		allowedOriginsCount: allowedOrigins?.length || 0,
+		expiresIn,
+	});
+
 	try {
+		logger.logDatabase("query", "users", { userId });
 		const user = await db.query.users.findFirst({
 			where: eq(users.id, userId),
 		});
 
 		if (!user) {
+			logger.warn("API key creation failed: user not found", { userId });
 			return c.json({ error: "User not found" }, 404);
 		}
 
@@ -107,6 +126,13 @@ app.openapi(createApiKeyRoute, async (c) => {
 			? new Date(Date.now() + expiresIn * 1000)
 			: null;
 
+		logger.logDatabase("insert", "apiKeys", {
+			userId,
+			name,
+			clientName,
+			keyPrefix,
+			hasExpiration: !!expiresAt,
+		});
 		const result = await db
 			.insert(apiKeys)
 			.values({
@@ -123,8 +149,17 @@ app.openapi(createApiKeyRoute, async (c) => {
 
 		const newKey = result[0];
 		if (!newKey) {
+			logger.error("API key creation failed: database insert returned no result");
 			return c.json({ error: "Failed to create API key" }, 500);
 		}
+
+		logger.info("API key created successfully", {
+			keyId: newKey.id,
+			userId: newKey.userId,
+			name: newKey.name,
+			keyPrefix,
+			clientName: newKey.clientName,
+		});
 
 		return c.json({
 			id: newKey.id,
@@ -136,7 +171,7 @@ app.openapi(createApiKeyRoute, async (c) => {
 			message: "Save this API key securely. It will not be shown again.",
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error creating API key:", error);
+		logger.error("Admin API key creation failed", error);
 		return c.json({ error: "Failed to create API key" }, 500);
 	}
 });
@@ -176,12 +211,22 @@ const listApiKeysRoute = createRoute({
 });
 
 app.openapi(listApiKeysRoute, async (c) => {
+	const logger = c.get("logger");
 	const { userId } = c.req.valid("query");
+
+	logger.info("Admin listing API keys", { 
+		filterByUserId: !!userId,
+		userId: userId || "all_users"
+	});
 
 	try {
 		let keys: any[];
 
 		if (userId) {
+			logger.logDatabase("query", "apiKeys", { 
+				action: "list_by_user",
+				userId 
+			});
 			keys = await db.query.apiKeys.findMany({
 				where: eq(apiKeys.userId, userId),
 				orderBy: [desc(apiKeys.createdAt)],
@@ -194,6 +239,9 @@ app.openapi(listApiKeysRoute, async (c) => {
 				},
 			});
 		} else {
+			logger.logDatabase("query", "apiKeys", { 
+				action: "list_all"
+			});
 			keys = await db.query.apiKeys.findMany({
 				orderBy: [desc(apiKeys.createdAt)],
 				with: {
@@ -226,9 +274,15 @@ app.openapi(listApiKeysRoute, async (c) => {
 				: undefined,
 		}));
 
+		logger.info("API keys listed successfully", {
+			resultCount: sanitizedKeys.length,
+			activeKeys: sanitizedKeys.filter(k => k.isActive).length,
+			filterByUserId: !!userId,
+		});
+
 		return c.json(sanitizedKeys, 200);
 	} catch (error) {
-		console.error("[API] Error listing API keys:", error);
+		logger.error("Admin API keys listing failed", error);
 		return c.json({ error: "Failed to list API keys" }, 500);
 	}
 });
@@ -295,9 +349,13 @@ const getApiKeyRoute = createRoute({
 });
 
 app.openapi(getApiKeyRoute, async (c) => {
+	const logger = c.get("logger");
 	const { id: keyId } = c.req.valid("param");
 
+	logger.info("Admin getting API key details", { keyId });
+
 	try {
+		logger.logDatabase("query", "apiKeys", { keyId });
 		const key = await db.query.apiKeys.findFirst({
 			where: eq(apiKeys.id, keyId),
 			with: {
@@ -310,8 +368,17 @@ app.openapi(getApiKeyRoute, async (c) => {
 		});
 
 		if (!key) {
+			logger.warn("API key not found", { keyId });
 			return c.json({ error: "API key not found" }, 404);
 		}
+
+		logger.info("API key details retrieved successfully", {
+			keyId,
+			userId: key.userId,
+			name: key.name,
+			isActive: key.isActive,
+			hasExpiration: !!key.expiresAt,
+		});
 
 		return c.json({
 			id: key.id,
@@ -332,7 +399,7 @@ app.openapi(getApiKeyRoute, async (c) => {
 			},
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error getting API key:", error);
+		logger.error("Admin API key retrieval failed", error);
 		return c.json({ error: "Failed to get API key" }, 500);
 	}
 });
@@ -404,10 +471,23 @@ const updateApiKeyRoute = createRoute({
 });
 
 app.openapi(updateApiKeyRoute, async (c) => {
+	const logger = c.get("logger");
 	const keyId = c.req.valid("param").id;
 	const updates = c.req.valid("json");
 
+	logger.info("Admin updating API key", {
+		keyId,
+		updateFields: Object.keys(updates),
+		hasNameUpdate: !!updates.name,
+		hasStatusUpdate: updates.isActive !== undefined,
+		hasExpirationUpdate: !!updates.expiresAt,
+	});
+
 	try {
+		logger.logDatabase("update", "apiKeys", { 
+			keyId, 
+			updateFields: Object.keys(updates)
+		});
 		const [updated] = await db
 			.update(apiKeys)
 			.set({
@@ -419,8 +499,16 @@ app.openapi(updateApiKeyRoute, async (c) => {
 			.returning();
 
 		if (!updated) {
+			logger.warn("API key update failed: key not found", { keyId });
 			return c.json({ error: "API key not found" }, 404);
 		}
+
+		logger.info("API key updated successfully", {
+			keyId,
+			name: updated.name,
+			isActive: updated.isActive,
+			updatedFields: Object.keys(updates),
+		});
 
 		return c.json({
 			id: updated.id,
@@ -432,7 +520,7 @@ app.openapi(updateApiKeyRoute, async (c) => {
 			expiresAt: updated.expiresAt?.toISOString() || null,
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error updating API key:", error);
+		logger.error("Admin API key update failed", error);
 		return c.json({ error: "Failed to update API key" }, 500);
 	}
 });
@@ -485,9 +573,16 @@ const deleteApiKeyRoute = createRoute({
 });
 
 app.openapi(deleteApiKeyRoute, async (c) => {
+	const logger = c.get("logger");
 	const { id: keyId } = c.req.valid("param");
 
+	logger.info("Admin deactivating API key", { keyId });
+
 	try {
+		logger.logDatabase("update", "apiKeys", { 
+			keyId, 
+			action: "deactivate"
+		});
 		const [deactivated] = await db
 			.update(apiKeys)
 			.set({
@@ -498,15 +593,22 @@ app.openapi(deleteApiKeyRoute, async (c) => {
 			.returning();
 
 		if (!deactivated) {
+			logger.warn("API key deactivation failed: key not found", { keyId });
 			return c.json({ error: "API key not found" }, 404);
 		}
+
+		logger.info("API key deactivated successfully", {
+			keyId,
+			name: deactivated.name,
+			userId: deactivated.userId,
+		});
 
 		return c.json({
 			success: true,
 			message: "API key deactivated successfully",
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error deactivating API key:", error);
+		logger.error("Admin API key deactivation failed", error);
 		return c.json({ error: "Failed to deactivate API key" }, 500);
 	}
 });
@@ -563,16 +665,24 @@ const rotateApiKeyRoute = createRoute({
 });
 
 app.openapi(rotateApiKeyRoute, async (c) => {
+	const logger = c.get("logger");
 	const { id: keyId } = c.req.valid("param");
 	const { gracePeriod: gracePeriodStr } = c.req.valid("query");
 	const gracePeriod = parseInt(gracePeriodStr);
 
+	logger.info("Admin rotating API key", {
+		keyId,
+		gracePeriod,
+	});
+
 	try {
+		logger.logDatabase("query", "apiKeys", { keyId });
 		const existingKey = await db.query.apiKeys.findFirst({
 			where: eq(apiKeys.id, keyId),
 		});
 
 		if (!existingKey) {
+			logger.warn("API key rotation failed: key not found", { keyId });
 			return c.json({ error: "API key not found" }, 404);
 		}
 
@@ -580,6 +690,14 @@ app.openapi(rotateApiKeyRoute, async (c) => {
 		const newApiKey = generateApiKey();
 		const newKeyPrefix = getApiKeyPrefix(newApiKey);
 		const newKeyHash = hashApiKey(newApiKey);
+
+		logger.logDatabase("transaction", "apiKeys", {
+			action: "rotate_key",
+			keyId,
+			oldKeyPrefix: existingKey.keyPrefix,
+			newKeyPrefix,
+			gracePeriod,
+		});
 
 		await db.transaction(async (tx) => {
 			await tx
@@ -602,13 +720,21 @@ app.openapi(rotateApiKeyRoute, async (c) => {
 			});
 		});
 
+		logger.info("API key rotated successfully", {
+			keyId,
+			oldKeyPrefix: existingKey.keyPrefix,
+			newKeyPrefix,
+			gracePeriod,
+			userId: existingKey.userId,
+		});
+
 		return c.json({
 			newApiKey,
 			message: `New API key generated. Old key will expire in ${gracePeriod} seconds.`,
 			expiresAt: new Date(Date.now() + gracePeriod * 1000).toISOString(),
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error rotating API key:", error);
+		logger.error("Admin API key rotation failed", error);
 		return c.json({ error: "Failed to rotate API key" }, 500);
 	}
 });

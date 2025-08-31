@@ -3,6 +3,7 @@ import { and, desc, eq, gte, isNull, lte, sql as sqlExpr } from "drizzle-orm";
 import { DateTime } from "luxon";
 import { db, practiceSessions, userIdentities, users } from "../../../client";
 import { getUserByDiscordId } from "../../utils";
+import { requestLogging } from "../../middleware/logging";
 import {
 	StartPracticeSessionSchema,
 	StopPracticeSessionSchema,
@@ -13,7 +14,14 @@ import {
 	ErrorResponseSchema,
 } from "../../../shared/schemas";
 
-const app = new OpenAPIHono();
+type Variables = {
+	userId?: string;
+	logger?: any;
+};
+
+const app = new OpenAPIHono<{ Variables: Variables }>();
+
+app.use("*", requestLogging());
 
 const startPracticeSessionRoute = createRoute({
 	method: "post",
@@ -59,21 +67,36 @@ const startPracticeSessionRoute = createRoute({
 });
 
 app.openapi(startPracticeSessionRoute, async (c) => {
+	const logger = c.get("logger");
 	const { discordId, userId: providedUserId, notes } = c.req.valid("json");
+
+	logger.info("Starting practice session", {
+		hasDiscordId: !!discordId,
+		hasUserId: !!providedUserId,
+		hasNotes: !!notes,
+	});
 
 	try {
 		let userId: string;
 		if (providedUserId) {
 			userId = providedUserId;
+			logger.debug("Using provided user ID", { userId });
 		} else if (discordId) {
+			logger.debug("Resolving user ID from Discord ID", { discordId });
 			userId = await getUserByDiscordId(discordId);
+			logger.debug("Resolved user ID", { userId });
 		} else {
+			logger.warn("Practice session start failed: missing identifier");
 			return c.json(
 				{ error: "Either discordId or userId must be provided" },
 				400,
 			);
 		}
 
+		logger.logDatabase("query", "practiceSessions", {
+			action: "find_active_session",
+			userId,
+		});
 		const activeSession = await db.query.practiceSessions.findFirst({
 			where: and(
 				eq(practiceSessions.userId, userId),
@@ -82,6 +105,11 @@ app.openapi(startPracticeSessionRoute, async (c) => {
 		});
 
 		if (activeSession) {
+			logger.info("Returning existing active session", {
+				sessionId: activeSession.id,
+				userId,
+				startTime: activeSession.startTime.toISOString(),
+			});
 			return c.json({
 			id: activeSession.id,
 			userId: activeSession.userId,
@@ -94,19 +122,34 @@ app.openapi(startPracticeSessionRoute, async (c) => {
 		}
 
 		const now = DateTime.now();
+		const sessionDate = now.toFormat("yyyy-MM-dd");
+		
+		logger.logDatabase("insert", "practiceSessions", {
+			userId,
+			date: sessionDate,
+			hasNotes: !!notes,
+		});
 		const [newSession] = await db
 			.insert(practiceSessions)
 			.values({
 				userId,
 				startTime: now.toJSDate(),
-				date: now.toFormat("yyyy-MM-dd"),
+				date: sessionDate,
 				notes: notes || null,
 			})
 			.returning();
 
 		if (!newSession) {
+			logger.error("Failed to create practice session: no session returned");
 			return c.json({ error: "Failed to start practice session" }, 500);
 		}
+
+		logger.info("Practice session started successfully", {
+			sessionId: newSession.id,
+			userId,
+			startTime: newSession.startTime.toISOString(),
+			date: sessionDate,
+		});
 
 		return c.json({
 			id: newSession.id,
@@ -118,7 +161,7 @@ app.openapi(startPracticeSessionRoute, async (c) => {
 			notes: newSession.notes,
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error starting practice session:", error);
+		logger.error("Practice session start failed", error);
 		return c.json({ error: "Failed to start practice session" }, 500);
 	}
 });
@@ -175,21 +218,35 @@ const stopPracticeSessionRoute = createRoute({
 });
 
 app.openapi(stopPracticeSessionRoute, async (c) => {
+	const logger = c.get("logger");
 	const { discordId, userId: providedUserId } = c.req.valid("json");
+
+	logger.info("Stopping practice session", {
+		hasDiscordId: !!discordId,
+		hasUserId: !!providedUserId,
+	});
 
 	try {
 		let userId: string;
 		if (providedUserId) {
 			userId = providedUserId;
+			logger.debug("Using provided user ID", { userId });
 		} else if (discordId) {
+			logger.debug("Resolving user ID from Discord ID", { discordId });
 			userId = await getUserByDiscordId(discordId);
+			logger.debug("Resolved user ID", { userId });
 		} else {
+			logger.warn("Practice session stop failed: missing identifier");
 			return c.json(
 				{ error: "Either discordId or userId must be provided" },
 				400,
 			);
 		}
 
+		logger.logDatabase("query", "practiceSessions", {
+			action: "find_active_session",
+			userId,
+		});
 		const activeSession = await db.query.practiceSessions.findFirst({
 			where: and(
 				eq(practiceSessions.userId, userId),
@@ -198,6 +255,7 @@ app.openapi(stopPracticeSessionRoute, async (c) => {
 		});
 
 		if (!activeSession) {
+			logger.warn("Practice session stop failed: no active session found", { userId });
 			return c.json({ error: "No active session found" }, 404);
 		}
 
@@ -205,6 +263,18 @@ app.openapi(stopPracticeSessionRoute, async (c) => {
 		const startTime = DateTime.fromJSDate(activeSession.startTime);
 		const duration = Math.floor(endTime.diff(startTime, "seconds").seconds);
 
+		logger.info("Calculating session duration", {
+			sessionId: activeSession.id,
+			startTime: startTime.toISO(),
+			endTime: endTime.toISO(),
+			durationSeconds: duration,
+			durationMinutes: Math.round(duration / 60),
+		});
+
+		logger.logDatabase("update", "practiceSessions", {
+			sessionId: activeSession.id,
+			durationSeconds: duration,
+		});
 		const [updatedSession] = await db
 			.update(practiceSessions)
 			.set({
@@ -215,8 +285,16 @@ app.openapi(stopPracticeSessionRoute, async (c) => {
 			.returning();
 
 		if (!updatedSession) {
+			logger.error("Failed to update practice session: no session returned");
 			return c.json({ error: "Failed to stop practice session" }, 500);
 		}
+
+		logger.info("Practice session stopped successfully", {
+			sessionId: updatedSession.id,
+			userId,
+			durationSeconds: duration,
+			durationHours: Math.round((duration / 3600) * 10) / 10,
+		});
 
 		return c.json({
 			id: updatedSession.id,
@@ -228,7 +306,7 @@ app.openapi(stopPracticeSessionRoute, async (c) => {
 			notes: updatedSession.notes,
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error stopping practice session:", error);
+		logger.error("Practice session stop failed", error);
 		return c.json({ error: "Failed to stop practice session" }, 500);
 	}
 });
@@ -265,12 +343,21 @@ const getDailyStatsDiscordRoute = createRoute({
 });
 
 app.openapi(getDailyStatsDiscordRoute, async (c) => {
+	const logger = c.get("logger");
 	const { discordId } = c.req.valid("param");
 
+	logger.info("Getting daily stats by Discord ID", { discordId });
+
 	try {
+		logger.debug("Resolving user ID from Discord ID", { discordId });
 		const userId = await getUserByDiscordId(discordId);
 		const today = DateTime.now().toFormat("yyyy-MM-dd");
 
+		logger.logDatabase("query", "practiceSessions", {
+			action: "daily_stats",
+			userId,
+			date: today,
+		});
 		const result = await db
 			.select({
 				totalDuration: sqlExpr<number>`COALESCE(SUM(${practiceSessions.duration}), 0)`,
@@ -284,9 +371,15 @@ app.openapi(getDailyStatsDiscordRoute, async (c) => {
 			);
 
 		const totalDuration = Number(result[0]?.totalDuration) || 0;
+		logger.info("Daily stats retrieved successfully", {
+			userId,
+			date: today,
+			totalDurationSeconds: totalDuration,
+			totalDurationHours: Math.round((totalDuration / 3600) * 10) / 10,
+		});
 		return c.json({ totalDuration }, 200);
 	} catch (error) {
-		console.error("[API] Error getting daily stats:", error);
+		logger.error("Daily stats retrieval failed", error);
 		return c.json({ error: "Failed to get daily stats" }, 500);
 	}
 });
@@ -323,11 +416,19 @@ const getDailyStatsUserRoute = createRoute({
 });
 
 app.openapi(getDailyStatsUserRoute, async (c) => {
+	const logger = c.get("logger");
 	const { userId } = c.req.valid("param");
+
+	logger.info("Getting daily stats by user ID", { userId });
 
 	try {
 		const today = DateTime.now().toFormat("yyyy-MM-dd");
 
+		logger.logDatabase("query", "practiceSessions", {
+			action: "daily_stats",
+			userId,
+			date: today,
+		});
 		const result = await db
 			.select({
 				totalDuration: sqlExpr<number>`COALESCE(SUM(${practiceSessions.duration}), 0)`,
@@ -341,9 +442,15 @@ app.openapi(getDailyStatsUserRoute, async (c) => {
 			);
 
 		const totalDuration = Number(result[0]?.totalDuration) || 0;
+		logger.info("Daily stats retrieved successfully", {
+			userId,
+			date: today,
+			totalDurationSeconds: totalDuration,
+			totalDurationHours: Math.round((totalDuration / 3600) * 10) / 10,
+		});
 		return c.json({ totalDuration }, 200);
 	} catch (error) {
-		console.error("[API] Error getting daily stats:", error);
+		logger.error("Daily stats retrieval failed", error);
 		return c.json({ error: "Failed to get daily stats" }, 500);
 	}
 });
@@ -380,15 +487,25 @@ const getWeeklyStatsDiscordRoute = createRoute({
 });
 
 app.openapi(getWeeklyStatsDiscordRoute, async (c) => {
+	const logger = c.get("logger");
 	const { discordId } = c.req.valid("param");
 
+	logger.info("Getting weekly stats by Discord ID", { discordId });
+
 	try {
+		logger.debug("Resolving user ID from Discord ID", { discordId });
 		const userId = await getUserByDiscordId(discordId);
 		const today = DateTime.now();
 		const weekAgo = today.minus({ days: 6 });
 		const startDate = weekAgo.toFormat("yyyy-MM-dd");
 		const endDate = today.toFormat("yyyy-MM-dd");
 
+		logger.logDatabase("query", "practiceSessions", {
+			action: "weekly_stats",
+			userId,
+			startDate,
+			endDate,
+		});
 		const results = await db
 			.select({
 				date: practiceSessions.date,
@@ -410,15 +527,26 @@ app.openapi(getWeeklyStatsDiscordRoute, async (c) => {
 			statsMap[date] = 0;
 		}
 
+		let totalWeekSeconds = 0;
 		for (const result of results) {
 			if (result.date) {
-				statsMap[result.date] = Number(result.totalDuration) || 0;
+				const duration = Number(result.totalDuration) || 0;
+				statsMap[result.date] = duration;
+				totalWeekSeconds += duration;
 			}
 		}
 
+		logger.info("Weekly stats retrieved successfully", {
+			userId,
+			dateRange: `${startDate} to ${endDate}`,
+			daysWithData: results.length,
+			totalWeekSeconds,
+			totalWeekHours: Math.round((totalWeekSeconds / 3600) * 10) / 10,
+		});
+
 		return c.json(statsMap, 200);
 	} catch (error) {
-		console.error("[API] Error getting weekly stats:", error);
+		logger.error("Weekly stats retrieval failed", error);
 		return c.json({ error: "Failed to get weekly stats" }, 500);
 	}
 });
@@ -455,7 +583,10 @@ const getWeeklyStatsUserRoute = createRoute({
 });
 
 app.openapi(getWeeklyStatsUserRoute, async (c) => {
+	const logger = c.get("logger");
 	const { userId } = c.req.valid("param");
+
+	logger.info("Getting weekly stats by user ID", { userId });
 
 	try {
 		const today = DateTime.now();
@@ -463,6 +594,12 @@ app.openapi(getWeeklyStatsUserRoute, async (c) => {
 		const startDate = weekAgo.toFormat("yyyy-MM-dd");
 		const endDate = today.toFormat("yyyy-MM-dd");
 
+		logger.logDatabase("query", "practiceSessions", {
+			action: "weekly_stats",
+			userId,
+			startDate,
+			endDate,
+		});
 		const results = await db
 			.select({
 				date: practiceSessions.date,
@@ -484,15 +621,26 @@ app.openapi(getWeeklyStatsUserRoute, async (c) => {
 			statsMap[date] = 0;
 		}
 
+		let totalWeekSeconds = 0;
 		for (const result of results) {
 			if (result.date) {
-				statsMap[result.date] = Number(result.totalDuration) || 0;
+				const duration = Number(result.totalDuration) || 0;
+				statsMap[result.date] = duration;
+				totalWeekSeconds += duration;
 			}
 		}
 
+		logger.info("Weekly stats retrieved successfully", {
+			userId,
+			dateRange: `${startDate} to ${endDate}`,
+			daysWithData: results.length,
+			totalWeekSeconds,
+			totalWeekHours: Math.round((totalWeekSeconds / 3600) * 10) / 10,
+		});
+
 		return c.json(statsMap, 200);
 	} catch (error) {
-		console.error("[API] Error getting weekly stats:", error);
+		logger.error("Weekly stats retrieval failed", error);
 		return c.json({ error: "Failed to get weekly stats" }, 500);
 	}
 });
@@ -529,14 +677,25 @@ const getMonthlyStatsDiscordRoute = createRoute({
 });
 
 app.openapi(getMonthlyStatsDiscordRoute, async (c) => {
+	const logger = c.get("logger");
 	const { discordId } = c.req.valid("param");
 
+	logger.info("Getting monthly stats by Discord ID", { discordId });
+
 	try {
+		logger.debug("Resolving user ID from Discord ID", { discordId });
 		const userId = await getUserByDiscordId(discordId);
 		const now = DateTime.now();
 		const startOfMonth = now.startOf("month").toFormat("yyyy-MM-dd");
 		const endOfMonth = now.endOf("month").toFormat("yyyy-MM-dd");
 
+		logger.logDatabase("query", "practiceSessions", {
+			action: "monthly_stats",
+			userId,
+			startOfMonth,
+			endOfMonth,
+			daysInMonth: now.daysInMonth,
+		});
 		const results = await db
 			.select({
 				date: practiceSessions.date,
@@ -559,15 +718,27 @@ app.openapi(getMonthlyStatsDiscordRoute, async (c) => {
 			statsMap[date] = 0;
 		}
 
+		let totalMonthSeconds = 0;
 		for (const result of results) {
 			if (result.date) {
-				statsMap[result.date] = Number(result.totalDuration) || 0;
+				const duration = Number(result.totalDuration) || 0;
+				statsMap[result.date] = duration;
+				totalMonthSeconds += duration;
 			}
 		}
 
+		logger.info("Monthly stats retrieved successfully", {
+			userId,
+			month: now.toFormat("yyyy-MM"),
+			daysWithData: results.length,
+			totalDaysInMonth: daysInMonth,
+			totalMonthSeconds,
+			totalMonthHours: Math.round((totalMonthSeconds / 3600) * 10) / 10,
+		});
+
 		return c.json(statsMap, 200);
 	} catch (error) {
-		console.error("[API] Error getting monthly stats:", error);
+		logger.error("Monthly stats retrieval failed", error);
 		return c.json({ error: "Failed to get monthly stats" }, 500);
 	}
 });
@@ -604,13 +775,23 @@ const getMonthlyStatsUserRoute = createRoute({
 });
 
 app.openapi(getMonthlyStatsUserRoute, async (c) => {
+	const logger = c.get("logger");
 	const { userId } = c.req.valid("param");
+
+	logger.info("Getting monthly stats by user ID", { userId });
 
 	try {
 		const now = DateTime.now();
 		const startOfMonth = now.startOf("month").toFormat("yyyy-MM-dd");
 		const endOfMonth = now.endOf("month").toFormat("yyyy-MM-dd");
 
+		logger.logDatabase("query", "practiceSessions", {
+			action: "monthly_stats",
+			userId,
+			startOfMonth,
+			endOfMonth,
+			daysInMonth: now.daysInMonth,
+		});
 		const results = await db
 			.select({
 				date: practiceSessions.date,
@@ -633,15 +814,27 @@ app.openapi(getMonthlyStatsUserRoute, async (c) => {
 			statsMap[date] = 0;
 		}
 
+		let totalMonthSeconds = 0;
 		for (const result of results) {
 			if (result.date) {
-				statsMap[result.date] = Number(result.totalDuration) || 0;
+				const duration = Number(result.totalDuration) || 0;
+				statsMap[result.date] = duration;
+				totalMonthSeconds += duration;
 			}
 		}
 
+		logger.info("Monthly stats retrieved successfully", {
+			userId,
+			month: now.toFormat("yyyy-MM"),
+			daysWithData: results.length,
+			totalDaysInMonth: daysInMonth,
+			totalMonthSeconds,
+			totalMonthHours: Math.round((totalMonthSeconds / 3600) * 10) / 10,
+		});
+
 		return c.json(statsMap, 200);
 	} catch (error) {
-		console.error("[API] Error getting monthly stats:", error);
+		logger.error("Monthly stats retrieval failed", error);
 		return c.json({ error: "Failed to get monthly stats" }, 500);
 	}
 });
@@ -673,7 +866,17 @@ const getLeaderboardRoute = createRoute({
 });
 
 app.openapi(getLeaderboardRoute, async (c) => {
+	const logger = c.get("logger");
+
+	logger.info("Getting practice leaderboard", { limit: 10 });
+
 	try {
+		logger.logDatabase("query", "practiceSessions", {
+			action: "leaderboard",
+			joinTables: ["users", "userIdentities"],
+			platform: "discord",
+			limit: 10,
+		});
 		const results = await db
 			.select({
 				identity: userIdentities.identity,
@@ -697,9 +900,17 @@ app.openapi(getLeaderboardRoute, async (c) => {
 			totalDuration: Number(r.totalDuration) || 0,
 		}));
 
+		const totalSeconds = topUsers.reduce((sum, user) => sum + user.totalDuration, 0);
+		logger.info("Leaderboard retrieved successfully", {
+			usersFound: topUsers.length,
+			topUserDuration: topUsers[0]?.totalDuration || 0,
+			totalCombinedSeconds: totalSeconds,
+			totalCombinedHours: Math.round((totalSeconds / 3600) * 10) / 10,
+		});
+
 		return c.json(topUsers, 200);
 	} catch (error) {
-		console.error("[API] Error getting leaderboard:", error);
+		logger.error("Leaderboard retrieval failed", error);
 		return c.json({ error: "Failed to get leaderboard" }, 500);
 	}
 });
@@ -731,7 +942,15 @@ const getTotalHoursRoute = createRoute({
 });
 
 app.openapi(getTotalHoursRoute, async (c) => {
+	const logger = c.get("logger");
+
+	logger.info("Getting total practice hours across all users");
+
 	try {
+		logger.logDatabase("query", "practiceSessions", {
+			action: "total_hours",
+			scope: "all_users",
+		});
 		const result = await db
 			.select({
 				totalDuration: sqlExpr<number>`COALESCE(SUM(${practiceSessions.duration}), 0)`,
@@ -741,9 +960,15 @@ app.openapi(getTotalHoursRoute, async (c) => {
 		const totalSeconds = Number(result[0]?.totalDuration) || 0;
 		const totalHours = Math.round((totalSeconds / 3600) * 10) / 10;
 
+		logger.info("Total hours retrieved successfully", {
+			totalSeconds,
+			totalHours,
+			totalDays: Math.round((totalHours / 24) * 10) / 10,
+		});
+
 		return c.json({ totalHours }, 200);
 	} catch (error) {
-		console.error("[API] Error getting total hours:", error);
+		logger.error("Total hours retrieval failed", error);
 		return c.json({ error: "Failed to get total hours" }, 500);
 	}
 });

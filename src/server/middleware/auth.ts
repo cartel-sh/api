@@ -7,6 +7,7 @@ import {
 	isValidApiKeyFormat,
 } from "../utils/crypto";
 import { verifyAccessToken } from "../utils/tokens";
+import { logger as baseLogger } from "../utils/logger";
 import type { ApiKey, UserRole } from "../../schema";
 
 // Simple in-memory cache for API keys
@@ -74,7 +75,7 @@ async function getApiKey(rawKey: string): Promise<ApiKey | null> {
 				.set({ lastUsedAt: now })
 				.where(eq(apiKeys.id, result.id))
 				.execute()
-				.catch(console.error);
+				.catch((error) => baseLogger.error({ error }, "Failed to update API key last used timestamp"));
 
 			// Clean cache periodically
 			if (Math.random() < 0.1) {
@@ -85,7 +86,7 @@ async function getApiKey(rawKey: string): Promise<ApiKey | null> {
 			return apiKey;
 		}
 	} catch (error) {
-		console.error("Error validating API key:", error);
+		baseLogger.error({ error }, "API key validation failed");
 	}
 
 	return null;
@@ -227,7 +228,7 @@ export async function optionalApiKey(c: Context, next: Next) {
 	// For non-root keys, validate format
 	if (!isValidApiKeyFormat(apiKey)) {
 		// Invalid format, but we don't fail - just continue without API key context
-		console.debug("Invalid API key format provided");
+		baseLogger.debug({}, "Invalid API key format provided");
 		await next();
 		return;
 	}
@@ -237,7 +238,7 @@ export async function optionalApiKey(c: Context, next: Next) {
 
 	if (!keyData) {
 		// Invalid key, but we don't fail - just continue without API key context
-		console.debug("Invalid API key provided");
+		baseLogger.debug({}, "Invalid API key provided");
 		await next();
 		return;
 	}

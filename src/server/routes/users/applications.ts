@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { desc, eq, sql } from "drizzle-orm";
 import { db, applications, applicationVotes } from "../../../client";
 import { requireJwtAuth } from "../../middleware/auth";
+import { requestLogging } from "../../middleware/logging";
 import {
 	CreateApplicationSchema,
 	ApplicationSchema,
@@ -9,7 +10,14 @@ import {
 	ErrorResponseSchema,
 } from "../../../shared/schemas";
 
-const app = new OpenAPIHono();
+type Variables = {
+	userId?: string;
+	logger?: any;
+};
+
+const app = new OpenAPIHono<{ Variables: Variables }>();
+
+app.use("*", requestLogging());
 const createApplicationRoute = createRoute({
 	method: "post",
 	path: "/",
@@ -49,9 +57,22 @@ const createApplicationRoute = createRoute({
 });
 
 app.openapi(createApplicationRoute, async (c) => {
+	const logger = c.get("logger");
 	const data = c.req.valid("json");
 
+	logger.info("Creating new application", {
+		hasWalletAddress: !!data.walletAddress,
+		hasGithub: !!data.github,
+		hasFarcaster: !!data.farcaster,
+		hasTwitter: !!data.twitter,
+		excitementLength: data.excitement?.length || 0,
+		motivationLength: data.motivation?.length || 0,
+	});
+
 	try {
+		logger.logDatabase("query", "applications", {
+			action: "get_max_application_number",
+		});
 		const result = await db
 			.select({
 				max: sql<number>`COALESCE(MAX(${applications.applicationNumber}), 0)`,
@@ -59,7 +80,15 @@ app.openapi(createApplicationRoute, async (c) => {
 			.from(applications);
 
 		const nextNumber = (result[0]?.max || 0) + 1;
+		logger.debug("Assigning application number", {
+			currentMax: result[0]?.max || 0,
+			nextNumber,
+		});
 
+		logger.logDatabase("insert", "applications", {
+			applicationNumber: nextNumber,
+			walletAddress: data.walletAddress ? "***masked***" : undefined,
+		});
 		const [application] = await db
 			.insert(applications)
 			.values({
@@ -68,12 +97,23 @@ app.openapi(createApplicationRoute, async (c) => {
 			})
 			.returning();
 
+		if (!application) {
+			logger.error("Failed to create application: no application returned");
+			return c.json({ error: "Failed to create application" }, 500);
+		}
+
+		logger.info("Application created successfully", {
+			applicationId: application.id,
+			applicationNumber: nextNumber,
+			walletAddress: data.walletAddress ? "***masked***" : undefined,
+		});
+
 		return c.json({
-			id: application!.id,
+			id: application.id,
 			applicationNumber: nextNumber,
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error creating application:", error);
+		logger.error("Application creation failed", error);
 		return c.json({ error: "Failed to create application" }, 500);
 	}
 });
@@ -105,7 +145,16 @@ const getPendingApplicationsRoute = createRoute({
 });
 
 app.openapi(getPendingApplicationsRoute, async (c) => {
+	const logger = c.get("logger");
+
+	logger.info("Getting pending applications");
+
 	try {
+		logger.logDatabase("query", "applications", {
+			action: "get_pending",
+			status: "pending",
+			orderBy: "submittedAt DESC",
+		});
 		const result = await db
 			.select()
 			.from(applications)
@@ -119,9 +168,15 @@ app.openapi(getPendingApplicationsRoute, async (c) => {
 			decidedAt: app.decidedAt?.toISOString() || null,
 		}));
 
+		logger.info("Pending applications retrieved successfully", {
+			count: result.length,
+			oldestSubmission: result[result.length - 1]?.submittedAt?.toISOString(),
+			newestSubmission: result[0]?.submittedAt?.toISOString(),
+		});
+
 		return c.json(formattedResult, 200);
 	} catch (error) {
-		console.error("[API] Error getting pending applications:", error);
+		logger.error("Pending applications retrieval failed", error);
 		return c.json({ error: "Failed to get pending applications" }, 500);
 	}
 });
@@ -166,19 +221,34 @@ const getApplicationByMessageRoute = createRoute({
 });
 
 app.openapi(getApplicationByMessageRoute, async (c) => {
+	const logger = c.get("logger");
 	const { messageId } = c.req.valid("param");
 
+	logger.info("Getting application by message ID", { messageId });
+
 	try {
+		logger.logDatabase("query", "applications", {
+			action: "get_by_message_id",
+			messageId,
+		});
 		const result = await db
 			.select()
 			.from(applications)
 			.where(eq(applications.messageId, messageId));
 
 		if (!result[0]) {
+			logger.warn("Application not found by message ID", { messageId });
 			return c.json({ error: "Application not found" }, 404);
 		}
 
 		const application = result[0];
+		logger.info("Application retrieved successfully by message ID", {
+			applicationId: application.id,
+			applicationNumber: application.applicationNumber,
+			status: application.status,
+			submittedAt: application.submittedAt?.toISOString(),
+		});
+
 		return c.json({
 			id: application.id,
 			messageId: application.messageId,
@@ -197,7 +267,7 @@ app.openapi(getApplicationByMessageRoute, async (c) => {
 			decidedAt: application.decidedAt?.toISOString() || null,
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error getting application by message ID:", error);
+		logger.error("Application retrieval by message ID failed", error);
 		return c.json({ error: "Failed to get application" }, 500);
 	}
 });
@@ -250,20 +320,35 @@ const getApplicationByNumberRoute = createRoute({
 });
 
 app.openapi(getApplicationByNumberRoute, async (c) => {
+	const logger = c.get("logger");
 	const { number: numberStr } = c.req.valid("param");
 	const number = parseInt(numberStr);
 
+	logger.info("Getting application by number", { applicationNumber: number });
+
 	try {
+		logger.logDatabase("query", "applications", {
+			action: "get_by_application_number",
+			applicationNumber: number,
+		});
 		const result = await db
 			.select()
 			.from(applications)
 			.where(eq(applications.applicationNumber, number));
 
 		if (!result[0]) {
+			logger.warn("Application not found by number", { applicationNumber: number });
 			return c.json({ error: "Application not found" }, 404);
 		}
 
 		const application = result[0];
+		logger.info("Application retrieved successfully by number", {
+			applicationId: application.id,
+			applicationNumber: number,
+			status: application.status,
+			submittedAt: application.submittedAt?.toISOString(),
+		});
+
 		return c.json({
 			id: application.id,
 			messageId: application.messageId,
@@ -282,7 +367,7 @@ app.openapi(getApplicationByNumberRoute, async (c) => {
 			decidedAt: application.decidedAt?.toISOString() || null,
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error getting application by number:", error);
+		logger.error("Application retrieval by number failed", error);
 		return c.json({ error: "Failed to get application" }, 500);
 	}
 });
@@ -331,21 +416,39 @@ const updateApplicationStatusRoute = createRoute({
 });
 
 app.openapi(updateApplicationStatusRoute, async (c) => {
+	const logger = c.get("logger");
 	const id = c.req.valid("param").id;
 	const { status } = c.req.valid("json");
 
+	logger.info("Updating application status", {
+		applicationId: id,
+		newStatus: status,
+	});
+
 	try {
+		const decidedAt = new Date();
+		logger.logDatabase("update", "applications", {
+			applicationId: id,
+			status,
+			decidedAt: decidedAt.toISOString(),
+		});
 		await db
 			.update(applications)
 			.set({
 				status,
-				decidedAt: new Date(),
+				decidedAt,
 			})
 			.where(eq(applications.id, id));
 
+		logger.info("Application status updated successfully", {
+			applicationId: id,
+			status,
+			decidedAt: decidedAt.toISOString(),
+		});
+
 		return c.json({ success: true }, 200);
 	} catch (error) {
-		console.error("[API] Error updating application status:", error);
+		logger.error("Application status update failed", error);
 		return c.json({ error: "Failed to update application status" }, 500);
 	}
 });
@@ -385,14 +488,22 @@ const deleteApplicationRoute = createRoute({
 });
 
 app.openapi(deleteApplicationRoute, async (c) => {
+	const logger = c.get("logger");
 	const { id } = c.req.valid("param");
 
+	logger.info("Deleting application", { applicationId: id });
+
 	try {
+		logger.logDatabase("delete", "applications", {
+			applicationId: id,
+		});
 		await db.delete(applications).where(eq(applications.id, id));
+
+		logger.info("Application deleted successfully", { applicationId: id });
 
 		return c.json({ success: true }, 200);
 	} catch (error) {
-		console.error("[API] Error deleting application:", error);
+		logger.error("Application deletion failed", error);
 		return c.json({ error: "Failed to delete application" }, 500);
 	}
 });
@@ -443,10 +554,24 @@ const addVoteRoute = createRoute({
 });
 
 app.openapi(addVoteRoute, async (c) => {
+	const logger = c.get("logger");
 	const applicationId = c.req.valid("param").id;
 	const { userId, userName, voteType } = c.req.valid("json");
 
+	logger.info("Adding vote to application", {
+		applicationId,
+		userId,
+		userName,
+		voteType,
+	});
+
 	try {
+		logger.logDatabase("upsert", "applicationVotes", {
+			applicationId,
+			userId,
+			voteType,
+			action: "insert_or_update_vote",
+		});
 		await db
 			.insert(applicationVotes)
 			.values({
@@ -463,9 +588,15 @@ app.openapi(addVoteRoute, async (c) => {
 				},
 			});
 
+		logger.info("Vote added/updated successfully", {
+			applicationId,
+			userId,
+			voteType,
+		});
+
 		return c.json({ success: true }, 200);
 	} catch (error) {
-		console.error("[API] Error adding vote:", error);
+		logger.error("Vote addition failed", error);
 		return c.json({ error: "Failed to add vote" }, 500);
 	}
 });
@@ -506,9 +637,16 @@ const getApplicationVotesRoute = createRoute({
 });
 
 app.openapi(getApplicationVotesRoute, async (c) => {
+	const logger = c.get("logger");
 	const { id: applicationId } = c.req.valid("param");
 
+	logger.info("Getting votes for application", { applicationId });
+
 	try {
+		logger.logDatabase("query", "applicationVotes", {
+			action: "get_votes_by_application",
+			applicationId,
+		});
 		const votes = await db
 			.select()
 			.from(applicationVotes)
@@ -517,6 +655,14 @@ app.openapi(getApplicationVotesRoute, async (c) => {
 		const approvals = votes.filter((v) => v.voteType === "approve");
 		const rejections = votes.filter((v) => v.voteType === "reject");
 
+		logger.info("Application votes retrieved successfully", {
+			applicationId,
+			totalVotes: votes.length,
+			approvalCount: approvals.length,
+			rejectionCount: rejections.length,
+			approvalPercentage: votes.length > 0 ? Math.round((approvals.length / votes.length) * 100) : 0,
+		});
+
 		return c.json({
 			approvals,
 			rejections,
@@ -524,7 +670,7 @@ app.openapi(getApplicationVotesRoute, async (c) => {
 			rejectionCount: rejections.length,
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error getting votes:", error);
+		logger.error("Application votes retrieval failed", error);
 		return c.json({ error: "Failed to get votes" }, 500);
 	}
 });

@@ -3,6 +3,7 @@ import { db, projects, withUser } from "../../client";
 import type { NewProject, UserRole } from "../../schema";
 import { eq, and, or, desc, ilike, arrayContains, sql } from "drizzle-orm";
 import { requireAuth, withJwtAuth, requireJwtAuth } from "../middleware/auth";
+import { requestLogging } from "../middleware/logging";
 import {
 	CreateProjectSchema,
 	UpdateProjectSchema,
@@ -22,10 +23,12 @@ type Variables = {
 	apiKeyId?: string;
 	apiKeyType?: string;
 	clientName?: string;
+	logger?: any;
 };
 
 const app = new OpenAPIHono<{ Variables: Variables }>();
 
+app.use("*", requestLogging());
 app.use("*", withJwtAuth);
 
 const listProjectsRoute = createRoute({
@@ -58,6 +61,7 @@ const listProjectsRoute = createRoute({
 });
 
 app.openapi(listProjectsRoute, async (c) => {
+	const logger = c.get("logger");
 	try {
 		const {
 			search,
@@ -72,10 +76,23 @@ app.openapi(listProjectsRoute, async (c) => {
 		const isAdmin = userRole === 'admin';
 		const isMember = userRole === 'member';
 
-		console.log("List projects query:", { search, tags, userId, publicFilter, limit, offset });
-		console.log("Current user:", { currentUserId, userRole, isAdmin, isMember });
+		logger.info("Listing projects", { 
+			search, 
+			tags, 
+			userId, 
+			publicFilter, 
+			limit, 
+			offset,
+			currentUserId,
+			userRole,
+		});
 
 	if (currentUserId) {
+		logger.logDatabase("query", "projects", { 
+			authenticated: true,
+			filters: { search, tags, userId, publicFilter }
+		});
+		
 		const results = await withUser(currentUserId, userRole || null, async (tx) => {
 			const conditions: any[] = [];
 
@@ -112,6 +129,10 @@ app.openapi(listProjectsRoute, async (c) => {
 				.offset(offset);
 		});
 
+		logger.info("Projects query completed", { 
+			resultCount: results.length,
+			authenticated: true
+		});
 		return c.json(results);
 	}
 
@@ -166,14 +187,8 @@ app.openapi(listProjectsRoute, async (c) => {
 
 	return c.json(results);
 	} catch (error) {
-		console.error("Error listing projects:", error);
-		const errorMessage = error instanceof Error ? error.message : String(error);
-		console.error("Error details:", {
-			message: errorMessage,
-			stack: error instanceof Error ? error.stack : undefined,
-			name: error instanceof Error ? error.name : undefined
-		});
-		return c.json({ error: "Internal server error", details: errorMessage }, 500);
+		logger.error("Projects listing failed", error);
+		return c.json({ error: "Internal server error" }, 500);
 	}
 });
 
@@ -283,14 +298,18 @@ const createProjectRoute = createRoute({
 });
 
 app.openapi(createProjectRoute, async (c) => {
+	const logger = c.get("logger");
 	try {
 		const data = c.req.valid("json");
 		const currentUserId = c.get("userId")!;
 		const userRole = c.get("userRole")!;
 
-		console.log("Create project request data:", JSON.stringify(data, null, 2));
-		console.log("Current user ID:", currentUserId);
-		console.log("User role:", userRole);
+		logger.info("Creating new project", { 
+			userId: currentUserId, 
+			userRole,
+			title: data.title,
+			isPublic: data.isPublic 
+		});
 
 		const newProject: NewProject = {
 			...data,
@@ -298,24 +317,29 @@ app.openapi(createProjectRoute, async (c) => {
 			tags: data.tags || [],
 		};
 
-		console.log("New project object:", JSON.stringify(newProject, null, 2));
+		logger.debug("Creating project with data", {
+			title: newProject.title,
+			userId: currentUserId,
+			tagsCount: newProject.tags?.length || 0,
+		});
 
 		const result = await withUser(currentUserId, userRole, async (tx) => {
-			console.log("About to insert project into database");
+			logger.logDatabase("insert", "projects", {
+				userId: currentUserId,
+				title: newProject.title,
+			});
 			const [project] = await tx.insert(projects).values(newProject).returning();
-			console.log("Project inserted successfully:", JSON.stringify(project, null, 2));
+			logger.debug("Project inserted successfully", {
+				projectId: project.id,
+				title: project.title,
+			});
 			return project;
 		});
 
 		return c.json(result, 201);
 	} catch (error) {
-		console.error("Error creating project:", error);
+		logger.error("Project creation failed", error);
 		const errorMessage = error instanceof Error ? error.message : String(error);
-		console.error("Error details:", {
-			message: errorMessage,
-			stack: error instanceof Error ? error.stack : undefined,
-			name: error instanceof Error ? error.name : undefined
-		});
 		return c.json({ error: "Internal server error", details: errorMessage }, 500);
 	}
 });

@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { SiweMessage } from "siwe";
 import { db, users, userIdentities, apiKeys } from "../../client";
 import { eq, and, or, isNull, gte } from "drizzle-orm";
+import { requestLogging } from "../middleware/logging";
 import {
 	AuthResponseSchema,
 	RefreshResponseSchema,
@@ -32,9 +33,13 @@ type Variables = {
 	apiKeyId?: string;
 	clientName?: string;
 	allowedOrigins?: string[];
+	logger?: any;
 };
 
 const app = new OpenAPIHono<{ Variables: Variables }>();
+
+// Add logging middleware
+app.use("*", requestLogging());
 
 const verifyRoute = createRoute({
 	method: "post",
@@ -89,23 +94,39 @@ const verifyRoute = createRoute({
 });
 
 app.openapi(verifyRoute, async (c) => {
+	const logger = c.get("logger");
 	const { message, signature } = c.req.valid("json");
 	const apiKey = c.req.header("X-API-Key");
 
+	logger.info("SIWE verification attempt", {
+		domain: message.match(/URI: (.+)/)?.[1],
+		hasSignature: !!signature,
+		hasApiKey: !!apiKey,
+	});
+
 	if (!apiKey) {
+		logger.warn("SIWE verification failed: missing API key");
 		return c.json({ error: "API key required" }, 401);
 	}
 
 	try {
 		const siweMessage = new SiweMessage(message);
+		logger.debug("Parsed SIWE message", {
+			address: siweMessage.address,
+			domain: siweMessage.domain,
+			chainId: siweMessage.chainId,
+		});
 
 		if (!isValidApiKeyFormat(apiKey)) {
+			logger.warn("SIWE verification failed: invalid API key format");
 			return c.json({ error: "Invalid API key format" }, 401);
 		}
 
 		const keyPrefix = getApiKeyPrefix(apiKey);
 		const keyHash = hashApiKey(apiKey);
 		const now = new Date();
+
+		logger.logDatabase("query", "apiKeys", { keyPrefix });
 
 		const apiKeyData = await db.query.apiKeys.findFirst({
 			where: and(
@@ -117,8 +138,16 @@ app.openapi(verifyRoute, async (c) => {
 		});
 
 		if (!apiKeyData) {
+			logger.warn("SIWE verification failed: API key not found or expired", {
+				keyPrefix,
+			});
 			return c.json({ error: "Invalid API key" }, 401);
 		}
+
+		logger.info("API key validated", {
+			clientName: apiKeyData.clientName,
+			keyPrefix,
+		});
 
 		const clientId = apiKeyData.id;
 		const clientName = apiKeyData.clientName || undefined;
@@ -128,7 +157,7 @@ app.openapi(verifyRoute, async (c) => {
 			.set({ lastUsedAt: now })
 			.where(eq(apiKeys.id, apiKeyData.id))
 			.execute()
-			.catch(console.error);
+			.catch((error) => logger.error("Failed to update API key last used timestamp", error));
 
 		// Validate allowed origins
 		if (allowedOrigins.length > 0) {
@@ -168,15 +197,21 @@ app.openapi(verifyRoute, async (c) => {
 		}
 
 		// Verify signature
+		logger.debug("Verifying SIWE signature");
 		const result = await siweMessage.verify({ signature });
 
 		if (!result.success) {
+			logger.warn("SIWE signature verification failed", {
+				address: siweMessage.address,
+			});
 			return c.json({ error: "Invalid signature" }, 401);
 		}
 
 		const address = siweMessage.address.toLowerCase();
+		logger.info("SIWE signature verified successfully", { address });
 
 		// Find or create user
+		logger.logDatabase("query", "userIdentities", { platform: "evm", address });
 		let identity = await db.query.userIdentities.findFirst({
 			where: and(
 				eq(userIdentities.platform, "evm"),
@@ -190,25 +225,38 @@ app.openapi(verifyRoute, async (c) => {
 		let userId: string;
 
 		if (!identity) {
+			logger.info("Creating new user for address", { address });
+			logger.logDatabase("insert", "users");
 			const [newUser] = await db.insert(users).values({}).returning();
 			if (!newUser) {
 				throw new Error("Failed to create user");
 			}
 			userId = newUser.id;
 
+			logger.logDatabase("insert", "userIdentities", { userId, address });
 			await db.insert(userIdentities).values({
 				userId,
 				platform: "evm",
 				identity: address,
 				isPrimary: true,
 			});
+
+			logger.info("New user created", { userId, address });
 		} else {
 			userId = identity.userId;
+			logger.debug("Existing user found", { userId, address });
 		}
 
+		logger.debug("Creating access and refresh tokens", { userId });
 		const accessToken = await createAccessToken(userId, clientId);
 		const familyId = crypto.randomUUID(); // New family for new login (must be UUID)
 		const refreshToken = await createRefreshToken(userId, familyId, clientId);
+
+		logger.logAuth("login_success", userId, {
+			address,
+			clientName: apiKeyData.clientName,
+			familyId,
+		});
 
 		return c.json(
 			{
@@ -223,7 +271,7 @@ app.openapi(verifyRoute, async (c) => {
 			200,
 		);
 	} catch (error) {
-		console.error("SIWE verification error:", error);
+		logger.error("SIWE verification error", error);
 		return c.json({ error: "Authentication failed" }, 500);
 	}
 });
@@ -264,13 +312,21 @@ const refreshRoute = createRoute({
 });
 
 app.openapi(refreshRoute, async (c) => {
+	const logger = c.get("logger");
 	const { refreshToken } = c.req.valid("json");
+
+	logger.info("Token refresh attempt");
 
 	const result = await rotateRefreshToken(refreshToken);
 
 	if (!result) {
+		logger.warn("Token refresh failed: invalid or expired refresh token");
 		return c.json({ error: "Invalid or expired refresh token" }, 401);
 	}
+
+	logger.logAuth("token_refresh", undefined, {
+		success: true,
+	});
 
 	return c.json(
 		{
@@ -323,9 +379,13 @@ const getMeRoute = createRoute({
 });
 
 app.openapi(getMeRoute, async (c) => {
+	const logger = c.get("logger");
 	const authHeader = c.req.header("Authorization");
 	
+	logger.info("Get user profile request");
+
 	if (!authHeader?.startsWith("Bearer ")) {
+		logger.warn("Get user profile failed: missing or invalid auth header");
 		return c.json({ error: "Not authenticated" }, 401);
 	}
 
@@ -333,9 +393,11 @@ app.openapi(getMeRoute, async (c) => {
 	const payload = verifyAccessToken(token);
 
 	if (!payload) {
+		logger.warn("Get user profile failed: invalid or expired token");
 		return c.json({ error: "Invalid or expired token" }, 401);
 	}
 
+	logger.logDatabase("query", "users", { userId: payload.userId });
 	const user = await db.query.users.findFirst({
 		where: eq(users.id, payload.userId),
 		with: {
@@ -346,12 +408,20 @@ app.openapi(getMeRoute, async (c) => {
 	});
 
 	if (!user) {
+		logger.warn("Get user profile failed: user not found", {
+			userId: payload.userId,
+		});
 		return c.json({ error: "User not found" }, 404);
 	}
 
 	// Get primary EVM address if exists
 	const primaryIdentity = user.identities.find(i => i.isPrimary);
 	const address = primaryIdentity?.identity;
+
+	logger.info("User profile retrieved successfully", {
+		userId: payload.userId,
+		hasAddress: !!address,
+	});
 
 	return c.json(
 		{
@@ -395,9 +465,13 @@ const revokeRoute = createRoute({
 });
 
 app.openapi(revokeRoute, async (c) => {
+	const logger = c.get("logger");
 	const authHeader = c.req.header("Authorization");
 	
+	logger.info("Token revocation request");
+
 	if (!authHeader?.startsWith("Bearer ")) {
+		logger.warn("Token revocation failed: missing or invalid auth header");
 		return c.json({ error: "Not authenticated" }, 401);
 	}
 
@@ -405,10 +479,16 @@ app.openapi(revokeRoute, async (c) => {
 	const payload = verifyAccessToken(token);
 
 	if (!payload) {
+		logger.warn("Token revocation failed: invalid or expired token");
 		return c.json({ error: "Invalid or expired token" }, 401);
 	}
 
+	logger.info("Revoking all tokens for user", { userId: payload.userId });
 	await revokeAllUserTokens(payload.userId);
+
+	logger.logAuth("token_revoke_all", payload.userId, {
+		success: true,
+	});
 
 	return c.json({ message: "All tokens revoked successfully" }, 200);
 });

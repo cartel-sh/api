@@ -53,6 +53,8 @@
     "hono": "^4.9.4",
     "jsonwebtoken": "^9.0.2",
     "luxon": "^3.7.1",
+    "pino": "^9.9.0",
+    "pino-pretty": "^13.1.1",
     "postgres": "^3.4.5",
     "siwe": "^3.0.0",
     "zod": "^4.1.1"

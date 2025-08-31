@@ -1,13 +1,21 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq } from "drizzle-orm";
 import { db, userIdentities, users } from "../../../client";
+import { requestLogging } from "../../middleware/logging";
 import {
 	UserSchema,
 	UserIdentitySchema,
 	ErrorResponseSchema,
 } from "../../../shared/schemas";
 
-const app = new OpenAPIHono();
+type Variables = {
+	userId?: string;
+	logger?: any;
+};
+
+const app = new OpenAPIHono<{ Variables: Variables }>();
+
+app.use("*", requestLogging());
 
 const PlatformEnum = z.enum([
 	"discord",
@@ -69,10 +77,21 @@ const getUserByEvmRoute = createRoute({
 });
 
 app.openapi(getUserByEvmRoute, async (c) => {
+	const logger = c.get("logger");
 	const { address } = c.req.valid("param");
 	const normalizedAddress = address.toLowerCase();
 
+	logger.info("Getting user by EVM address", {
+		address: "***masked***",
+		addressLength: address.length,
+	});
+
 	try {
+		logger.logDatabase("query", "userIdentities", {
+			action: "find_by_evm_address",
+			platform: "evm",
+			address: "***masked***",
+		});
 		const identity = await db.query.userIdentities.findFirst({
 			where: and(
 				eq(userIdentities.platform, "evm"),
@@ -84,8 +103,17 @@ app.openapi(getUserByEvmRoute, async (c) => {
 		});
 
 		if (!identity) {
+			logger.warn("User not found by EVM address", {
+				address: "***masked***",
+			});
 			return c.json({ error: "User not found" }, 404);
 		}
+
+		logger.info("User retrieved successfully by EVM address", {
+			userId: identity.userId,
+			isPrimary: identity.isPrimary,
+			userCreatedAt: identity.user.createdAt?.toISOString(),
+		});
 
 		return c.json({
 			userId: identity.userId,
@@ -101,7 +129,7 @@ app.openapi(getUserByEvmRoute, async (c) => {
 			},
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error getting user by EVM address:", error);
+		logger.error("User retrieval by EVM address failed", error);
 		return c.json({ error: "Failed to get user" }, 500);
 	}
 });
@@ -158,10 +186,21 @@ const getUserByLensRoute = createRoute({
 });
 
 app.openapi(getUserByLensRoute, async (c) => {
+	const logger = c.get("logger");
 	const { address } = c.req.valid("param");
 	const normalizedAddress = address.toLowerCase();
 
+	logger.info("Getting user by Lens address", {
+		address: "***masked***",
+		addressLength: address.length,
+	});
+
 	try {
+		logger.logDatabase("query", "userIdentities", {
+			action: "find_by_lens_address",
+			platform: "lens",
+			address: "***masked***",
+		});
 		const identity = await db.query.userIdentities.findFirst({
 			where: and(
 				eq(userIdentities.platform, "lens"),
@@ -173,8 +212,17 @@ app.openapi(getUserByLensRoute, async (c) => {
 		});
 
 		if (!identity) {
+			logger.warn("User not found by Lens address", {
+				address: "***masked***",
+			});
 			return c.json({ error: "User not found" }, 404);
 		}
+
+		logger.info("User retrieved successfully by Lens address", {
+			userId: identity.userId,
+			isPrimary: identity.isPrimary,
+			userCreatedAt: identity.user.createdAt?.toISOString(),
+		});
 
 		return c.json({
 			userId: identity.userId,
@@ -190,7 +238,7 @@ app.openapi(getUserByLensRoute, async (c) => {
 			},
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error getting user by Lens:", error);
+		logger.error("User retrieval by Lens address failed", error);
 		return c.json({ error: "Failed to get user" }, 500);
 	}
 });
@@ -247,9 +295,17 @@ const getUserByFarcasterRoute = createRoute({
 });
 
 app.openapi(getUserByFarcasterRoute, async (c) => {
+	const logger = c.get("logger");
 	const { fid } = c.req.valid("param");
 
+	logger.info("Getting user by Farcaster FID", { fid });
+
 	try {
+		logger.logDatabase("query", "userIdentities", {
+			action: "find_by_farcaster_fid",
+			platform: "farcaster",
+			fid,
+		});
 		const identity = await db.query.userIdentities.findFirst({
 			where: and(
 				eq(userIdentities.platform, "farcaster"),
@@ -261,8 +317,16 @@ app.openapi(getUserByFarcasterRoute, async (c) => {
 		});
 
 		if (!identity) {
+			logger.warn("User not found by Farcaster FID", { fid });
 			return c.json({ error: "User not found" }, 404);
 		}
+
+		logger.info("User retrieved successfully by Farcaster FID", {
+			userId: identity.userId,
+			fid,
+			isPrimary: identity.isPrimary,
+			userCreatedAt: identity.user.createdAt?.toISOString(),
+		});
 
 		return c.json({
 			userId: identity.userId,
@@ -278,7 +342,7 @@ app.openapi(getUserByFarcasterRoute, async (c) => {
 			},
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error getting user by Farcaster FID:", error);
+		logger.error("User retrieval by Farcaster FID failed", error);
 		return c.json({ error: "Failed to get user" }, 500);
 	}
 });
@@ -335,9 +399,17 @@ const getUserByDiscordRoute = createRoute({
 });
 
 app.openapi(getUserByDiscordRoute, async (c) => {
+	const logger = c.get("logger");
 	const { discordId } = c.req.valid("param");
 
+	logger.info("Getting user by Discord ID", { discordId });
+
 	try {
+		logger.logDatabase("query", "userIdentities", {
+			action: "find_by_discord_id",
+			platform: "discord",
+			discordId,
+		});
 		const identity = await db.query.userIdentities.findFirst({
 			where: and(
 				eq(userIdentities.platform, "discord"),
@@ -349,8 +421,16 @@ app.openapi(getUserByDiscordRoute, async (c) => {
 		});
 
 		if (!identity) {
+			logger.warn("User not found by Discord ID", { discordId });
 			return c.json({ error: "User not found" }, 404);
 		}
+
+		logger.info("User retrieved successfully by Discord ID", {
+			userId: identity.userId,
+			discordId,
+			isPrimary: identity.isPrimary,
+			userCreatedAt: identity.user.createdAt?.toISOString(),
+		});
 
 		return c.json({
 			userId: identity.userId,
@@ -366,7 +446,7 @@ app.openapi(getUserByDiscordRoute, async (c) => {
 			},
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error getting user by Discord ID:", error);
+		logger.error("User retrieval by Discord ID failed", error);
 		return c.json({ error: "Failed to get user" }, 500);
 	}
 });
@@ -423,9 +503,17 @@ const getUserByTelegramRoute = createRoute({
 });
 
 app.openapi(getUserByTelegramRoute, async (c) => {
+	const logger = c.get("logger");
 	const { telegramId } = c.req.valid("param");
 
+	logger.info("Getting user by Telegram ID", { telegramId });
+
 	try {
+		logger.logDatabase("query", "userIdentities", {
+			action: "find_by_telegram_id",
+			platform: "telegram",
+			telegramId,
+		});
 		const identity = await db.query.userIdentities.findFirst({
 			where: and(
 				eq(userIdentities.platform, "telegram"),
@@ -437,8 +525,16 @@ app.openapi(getUserByTelegramRoute, async (c) => {
 		});
 
 		if (!identity) {
+			logger.warn("User not found by Telegram ID", { telegramId });
 			return c.json({ error: "User not found" }, 404);
 		}
+
+		logger.info("User retrieved successfully by Telegram ID", {
+			userId: identity.userId,
+			telegramId,
+			isPrimary: identity.isPrimary,
+			userCreatedAt: identity.user.createdAt?.toISOString(),
+		});
 
 		return c.json({
 			userId: identity.userId,
@@ -454,7 +550,7 @@ app.openapi(getUserByTelegramRoute, async (c) => {
 			},
 		}, 200);
 	} catch (error) {
-		console.error("[API] Error getting user by Telegram ID:", error);
+		logger.error("User retrieval by Telegram ID failed", error);
 		return c.json({ error: "Failed to get user" }, 500);
 	}
 });
@@ -539,7 +635,14 @@ const createIdentityRoute = createRoute({
 });
 
 app.openapi(createIdentityRoute, async (c) => {
+	const logger = c.get("logger");
 	const { platform, identity, isPrimary } = c.req.valid("json");
+
+	logger.info("Creating user identity", {
+		platform,
+		identity: platform === "evm" || platform === "lens" ? "***masked***" : identity,
+		isPrimary: isPrimary || true,
+	});
 
 	try {
 		const normalizedIdentity =
@@ -547,6 +650,11 @@ app.openapi(createIdentityRoute, async (c) => {
 				? identity.toLowerCase()
 				: identity;
 
+		logger.logDatabase("query", "userIdentities", {
+			action: "check_existing_identity",
+			platform,
+			identity: platform === "evm" || platform === "lens" ? "***masked***" : normalizedIdentity,
+		});
 		const existingIdentity = await db.query.userIdentities.findFirst({
 			where: and(
 				eq(userIdentities.platform, platform),
@@ -558,6 +666,12 @@ app.openapi(createIdentityRoute, async (c) => {
 		});
 
 		if (existingIdentity) {
+			logger.info("Returning existing identity", {
+				userId: existingIdentity.userId,
+				platform,
+				isPrimary: existingIdentity.isPrimary,
+				createdAt: existingIdentity.createdAt?.toISOString(),
+			});
 			return c.json({
 				userId: existingIdentity.userId,
 				user: {
@@ -577,21 +691,45 @@ app.openapi(createIdentityRoute, async (c) => {
 			}, 200);
 		}
 
+		logger.logDatabase("insert", "users", {
+			action: "create_new_user",
+		});
 		const [newUser] = await db.insert(users).values({}).returning();
 
 		if (!newUser) {
+			logger.error("Failed to create user: no user returned");
 			return c.json({ error: "Failed to create user" }, 500);
 		}
 
+		const willBePrimary = isPrimary !== undefined ? isPrimary : true;
+		logger.logDatabase("insert", "userIdentities", {
+			userId: newUser.id,
+			platform,
+			identity: platform === "evm" || platform === "lens" ? "***masked***" : normalizedIdentity,
+			isPrimary: willBePrimary,
+		});
 		const [newIdentity] = await db
 			.insert(userIdentities)
 			.values({
 				userId: newUser.id,
 				platform,
 				identity: normalizedIdentity,
-				isPrimary: isPrimary || true,
+				isPrimary: willBePrimary,
 			})
 			.returning();
+
+		if (!newIdentity) {
+			logger.error("Failed to create identity: no identity returned");
+			return c.json({ error: "Failed to create identity" }, 500);
+		}
+
+		logger.info("User identity created successfully", {
+			userId: newUser.id,
+			platform,
+			identity: platform === "evm" || platform === "lens" ? "***masked***" : newIdentity.identity,
+			isPrimary: newIdentity.isPrimary,
+			createdAt: newIdentity.createdAt?.toISOString(),
+		});
 
 		return c.json(
 			{
@@ -602,19 +740,19 @@ app.openapi(createIdentityRoute, async (c) => {
 					updatedAt: newUser.updatedAt?.toISOString() || null,
 				},
 				identity: {
-					userId: newIdentity!.userId,
-					platform: newIdentity!.platform,
-					identity: newIdentity!.identity,
-					isPrimary: newIdentity!.isPrimary,
-					createdAt: newIdentity!.createdAt?.toISOString() || null,
-					updatedAt: newIdentity!.updatedAt?.toISOString() || null,
+					userId: newIdentity.userId,
+					platform: newIdentity.platform,
+					identity: newIdentity.identity,
+					isPrimary: newIdentity.isPrimary,
+					createdAt: newIdentity.createdAt?.toISOString() || null,
+					updatedAt: newIdentity.updatedAt?.toISOString() || null,
 				},
 				created: true,
 			},
 			201,
 		);
 	} catch (error) {
-		console.error("[API] Error creating identity:", error);
+		logger.error("User identity creation failed", error);
 		return c.json({ error: "Failed to create identity" }, 500);
 	}
 });
