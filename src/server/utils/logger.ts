@@ -1,4 +1,6 @@
 import pino from "pino";
+import { databaseLogger, createLogEntry } from "./database-logger";
+import type { UserRole } from "../../schema";
 
 export type LogLevel = "debug" | "info" | "warn" | "error" | "fatal";
 export enum LogVerbosity {
@@ -89,30 +91,84 @@ const loggerConfig: LoggerConfig = {
 
 const baseLogger = pino(createLoggerConfig(loggerConfig));
 
+interface RequestContext {
+	method?: string;
+	path?: string;
+	userAgent?: string;
+	clientIp?: string;
+	userId?: string;
+	userRole?: UserRole;
+	sessionId?: string;
+	duration?: number;
+	statusCode?: number;
+}
+
 class RouteLogger {
 	private logger: pino.Logger;
 	private route: string;
+	private requestContext: RequestContext = {};
 
 	constructor(route: string, baseLogger: pino.Logger) {
 		this.route = route;
 		this.logger = baseLogger.child({ route });
 	}
 
+	setRequestContext(context: RequestContext) {
+		this.requestContext = { ...this.requestContext, ...context };
+	}
+
 	debug(message: string, data?: any) {
 		this.logger.debug(data || {}, message);
 	}
 
-	// Info level logging  
 	info(message: string, data?: any) {
 		this.logger.info(data || {}, message);
+		
+		const logEntry = createLogEntry({
+			level: 'info',
+			message,
+			data,
+			route: this.route,
+			method: this.requestContext.method,
+			path: this.requestContext.path,
+			userAgent: this.requestContext.userAgent,
+			clientIp: this.requestContext.clientIp,
+			userId: this.requestContext.userId,
+			userRole: this.requestContext.userRole,
+			sessionId: this.requestContext.sessionId,
+			statusCode: this.requestContext.statusCode,
+			duration: this.requestContext.duration,
+			category: 'application',
+			operation: 'log'
+		});
+		
+		databaseLogger.log(logEntry);
 	}
 
-	// Warning level logging
 	warn(message: string, data?: any) {
 		this.logger.warn(data || {}, message);
+		
+		const logEntry = createLogEntry({
+			level: 'warn',
+			message,
+			data,
+			route: this.route,
+			method: this.requestContext.method,
+			path: this.requestContext.path,
+			userAgent: this.requestContext.userAgent,
+			clientIp: this.requestContext.clientIp,
+			userId: this.requestContext.userId,
+			userRole: this.requestContext.userRole,
+			sessionId: this.requestContext.sessionId,
+			statusCode: this.requestContext.statusCode,
+			duration: this.requestContext.duration,
+			category: 'application',
+			operation: 'log'
+		});
+		
+		databaseLogger.log(logEntry);
 	}
 
-	// Error level logging
 	error(message: string, error?: Error | any) {
 		if (error instanceof Error) {
 			this.logger.error({ 
@@ -127,9 +183,29 @@ class RouteLogger {
 		} else {
 			this.logger.error(message);
 		}
+		
+		const logEntry = createLogEntry({
+			level: 'error',
+			message,
+			data: error instanceof Error ? undefined : error,
+			route: this.route,
+			method: this.requestContext.method,
+			path: this.requestContext.path,
+			userAgent: this.requestContext.userAgent,
+			clientIp: this.requestContext.clientIp,
+			userId: this.requestContext.userId,
+			userRole: this.requestContext.userRole,
+			sessionId: this.requestContext.sessionId,
+			statusCode: this.requestContext.statusCode,
+			duration: this.requestContext.duration,
+			error: error instanceof Error ? error : undefined,
+			category: 'error',
+			operation: 'log'
+		});
+		
+		databaseLogger.log(logEntry);
 	}
 
-	// Fatal level logging
 	fatal(message: string, error?: Error | any) {
 		if (error instanceof Error) {
 			this.logger.fatal({ 
@@ -144,9 +220,29 @@ class RouteLogger {
 		} else {
 			this.logger.fatal(message);
 		}
+		
+		const logEntry = createLogEntry({
+			level: 'fatal',
+			message,
+			data: error instanceof Error ? undefined : error,
+			route: this.route,
+			method: this.requestContext.method,
+			path: this.requestContext.path,
+			userAgent: this.requestContext.userAgent,
+			clientIp: this.requestContext.clientIp,
+			userId: this.requestContext.userId,
+			userRole: this.requestContext.userRole,
+			sessionId: this.requestContext.sessionId,
+			statusCode: this.requestContext.statusCode,
+			duration: this.requestContext.duration,
+			error: error instanceof Error ? error : undefined,
+			category: 'fatal',
+			operation: 'log'
+		});
+		
+		databaseLogger.log(logEntry);
 	}
 
-	// Log request start
 	logRequestStart(method: string, path: string, data?: any) {
 		this.info(`${method} ${path} - Request started`, {
 			method,
@@ -155,7 +251,6 @@ class RouteLogger {
 		});
 	}
 
-	// Log request end
 	logRequestEnd(method: string, path: string, statusCode: number, duration?: number) {
 		const level = statusCode >= 400 ? "warn" : "info";
 		this[level](`${method} ${path} - Request completed`, {
@@ -166,7 +261,6 @@ class RouteLogger {
 		});
 	}
 
-	// Log database operation
 	logDatabase(operation: string, table?: string, data?: any) {
 		this.debug(`Database ${operation}`, {
 			operation,
@@ -175,7 +269,6 @@ class RouteLogger {
 		});
 	}
 
-	// Log authentication
 	logAuth(action: string, userId?: string, data?: any) {
 		this.info(`Auth ${action}`, {
 			action,

@@ -549,3 +549,76 @@ export interface Project extends InferSelectModel<typeof projects> {
 	tags: string[];
 }
 export interface NewProject extends InferInsertModel<typeof projects> {}
+
+export const logs = pgTable(
+	"logs",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		
+		timestamp: timestamp("timestamp", { withTimezone: true }).notNull().defaultNow(),
+		level: text("level").notNull().$type<'info' | 'warn' | 'error' | 'fatal'>(),
+		message: text("message").notNull(),
+		data: text("data"), // JSON string for structured data
+		
+		route: text("route"), // e.g., "GET /api/users"
+		method: text("method"), // HTTP method
+		path: text("path"), // URL path
+		statusCode: integer("status_code"), // HTTP status
+		duration: integer("duration"), // Request duration in ms
+		
+		userId: uuid("user_id").references(() => users.id),
+		userRole: text("user_role").$type<UserRole>(),
+		clientIp: text("client_ip"),
+		userAgent: text("user_agent"),
+		sessionId: text("session_id"),
+		
+		environment: text("environment"), // production, staging, dev
+		version: text("version"), // API version
+		service: text("service").default("cartel-api"),
+		
+		errorName: text("error_name"),
+		errorStack: text("error_stack"),
+		
+		tags: text("tags").array().default(sql`ARRAY[]::text[]`), // For custom categorization
+		category: text("category"), // database, auth, request, etc.
+		operation: text("operation"), // create, read, update, delete, etc.
+		
+		traceId: text("trace_id"), // For distributed tracing
+		correlationId: text("correlation_id"), // For request correlation
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+	},
+	(table) => [
+		// Performance indexes for fast querying
+		index("logs_timestamp_idx").on(table.timestamp),
+		index("logs_level_timestamp_idx").on(table.level, table.timestamp),
+		index("logs_user_timestamp_idx").on(table.userId, table.timestamp),
+		index("logs_route_timestamp_idx").on(table.route, table.timestamp),
+		index("logs_category_timestamp_idx").on(table.category, table.timestamp),
+		
+		// Search indexes
+		index("logs_message_search_idx").on(table.message),
+		index("logs_error_name_idx").on(table.errorName),
+		index("logs_tags_idx").using("gin", table.tags),
+		
+		// RLS policies - only admin users can access logs
+		pgPolicy("logs_admin_all", {
+			as: "permissive",
+			to: adminRole,
+			for: "all",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
+	],
+).enableRLS();
+
+export const logsRelations = relations(logs, ({ one }) => ({
+	user: one(users, {
+		fields: [logs.userId],
+		references: [users.id],
+	}),
+}));
+
+export interface LogEntry extends InferSelectModel<typeof logs> {
+	tags: string[];
+}
+export interface NewLogEntry extends InferInsertModel<typeof logs> {}

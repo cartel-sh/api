@@ -13,6 +13,7 @@ import id from "./routes/users/id";
 import identities from "./routes/users/identities";
 import adminKeys from "./routes/admin/keys";
 import adminIdentities from "./routes/admin/identities";
+import logs from "./routes/logs";
 import projects from "./routes/projects";
 import auth from "./routes/auth";
 import { createMarkdownFromOpenApi } from "@scalar/openapi-to-markdown";
@@ -63,6 +64,7 @@ app.route("/api/users/id", id);
 app.route("/api/users/identities", identities);
 app.route("/api/admin/keys", adminKeys);
 app.route("/api/admin/identities", adminIdentities);
+app.route("/api/admin/logs", logs);
 app.route("/api/projects", projects);
 app.route("/api/auth", auth);
 
@@ -120,6 +122,7 @@ app.get("/", (c) =>
 			"/api/users/identities",
 			"/api/admin/keys",
 			"/api/admin/identities",
+			"/api/admin/logs",
 			"/api/projects",
 			"/api/auth",
 		],

@@ -14,6 +14,13 @@ export const requestLogging = (): MiddlewareHandler => {
 		const userAgent = c.req.header("User-Agent");
 		const clientIP = c.req.header("X-Forwarded-For") || c.req.header("X-Real-IP") || "unknown";
 
+		routeLogger.setRequestContext({
+			method,
+			path,
+			userAgent,
+			clientIp: clientIP,
+		});
+
 		routeLogger.logRequestStart(method, path, {
 			userAgent,
 			clientIP,
@@ -26,10 +33,21 @@ export const requestLogging = (): MiddlewareHandler => {
 			const duration = Date.now() - start;
 			const status = c.res.status;
 
+			routeLogger.setRequestContext({
+				duration,
+				statusCode: status,
+			});
+
 			routeLogger.logRequestEnd(method, path, status, duration);
 
 		} catch (error) {
 			const duration = Date.now() - start;
+			
+			routeLogger.setRequestContext({
+				duration,
+				statusCode: 500, // Default error status
+			});
+			
 			routeLogger.error(`Request failed after ${duration}ms`, error);
 
 			throw error;

@@ -278,6 +278,95 @@ export const RevokeTokensResponseSchema = z.object({
 });
 
 // ============================================
+// Log Management Schemas (Admin only)
+// ============================================
+
+export const LogQuerySchema = z.object({
+	page: z.number().optional().default(1),
+	limit: z.number().optional().default(50),
+	level: z.enum(["info", "warn", "error", "fatal"]).optional(),
+	startDate: z.string().datetime().optional(),
+	endDate: z.string().datetime().optional(),
+	userId: z.string().uuid().optional(),
+	route: z.string().optional(),
+	method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]).optional(),
+	statusCode: z.number().optional(),
+	search: z.string().optional(),
+	category: z.string().optional(),
+	operation: z.string().optional(),
+	environment: z.string().optional(),
+	service: z.string().optional(),
+	errorName: z.string().optional(),
+	tags: z.array(z.string()).optional(),
+	sortBy: z.enum(["timestamp", "level", "route", "duration", "statusCode"]).optional().default("timestamp"),
+	sortOrder: z.enum(["asc", "desc"]).optional().default("desc"),
+});
+
+export const LogEntrySchema = z.object({
+	id: z.string(),
+	timestamp: z.string(),
+	level: z.string(),
+	message: z.string(),
+	data: z.string().nullable(),
+	route: z.string().nullable(),
+	method: z.string().nullable(),
+	path: z.string().nullable(),
+	statusCode: z.number().nullable(),
+	duration: z.number().nullable(),
+	userId: z.string().nullable(),
+	userRole: z.string().nullable(),
+	clientIp: z.string().nullable(),
+	userAgent: z.string().nullable(),
+	sessionId: z.string().nullable(),
+	environment: z.string().nullable(),
+	version: z.string().nullable(),
+	service: z.string().nullable(),
+	errorName: z.string().nullable(),
+	errorStack: z.string().nullable(),
+	tags: z.array(z.string()),
+	category: z.string().nullable(),
+	operation: z.string().nullable(),
+	traceId: z.string().nullable(),
+	correlationId: z.string().nullable(),
+	createdAt: z.string().nullable(),
+});
+
+export const LogsListResponseSchema = z.object({
+	logs: z.array(LogEntrySchema),
+	pagination: z.object({
+		page: z.number(),
+		limit: z.number(),
+		total: z.number(),
+		totalPages: z.number(),
+	}),
+});
+
+export const LogStatsResponseSchema = z.object({
+	totalLogs: z.number(),
+	logsByLevel: z.object({
+		info: z.number(),
+		warn: z.number(),
+		error: z.number(),
+		fatal: z.number(),
+	}),
+	logsByRoute: z.array(z.object({
+		route: z.string(),
+		count: z.number(),
+	})),
+	recentErrors: z.array(z.object({
+		errorName: z.string(),
+		count: z.number(),
+		lastOccurrence: z.string(),
+	})),
+});
+
+export const LogCleanupResponseSchema = z.object({
+	success: z.boolean(),
+	message: z.string().optional(),
+	deletedCount: z.number(),
+});
+
+// ============================================
 // Type Exports (inferred from Zod schemas)
 // ============================================
 
@@ -321,3 +410,9 @@ export type AuthHeaders = z.infer<typeof AuthHeadersSchema>;
 export type RefreshTokenRequest = z.infer<typeof RefreshTokenRequestSchema>;
 export type UserMeResponse = z.infer<typeof UserMeResponseSchema>;
 export type RevokeTokensResponse = z.infer<typeof RevokeTokensResponseSchema>;
+
+export type LogQuery = z.infer<typeof LogQuerySchema>;
+export type LogEntry = z.infer<typeof LogEntrySchema>;
+export type LogsListResponse = z.infer<typeof LogsListResponseSchema>;
+export type LogStatsResponse = z.infer<typeof LogStatsResponseSchema>;
+export type LogCleanupResponse = z.infer<typeof LogCleanupResponseSchema>;

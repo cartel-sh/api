@@ -15,12 +15,22 @@ import type {
 	UserIdentity,
 	Project,
 	SuccessResponse,
+	LogQuery,
+	LogEntry,
+	LogsListResponse,
+	LogStatsResponse,
+	LogCleanupResponse,
 } from "../shared/schemas";
 
 export type {
 	AuthResponse,
 	RefreshResponse,
 	UserIdentityLookup,
+	LogQuery,
+	LogEntry,
+	LogsListResponse,
+	LogStatsResponse,
+	LogCleanupResponse,
 } from "../shared/schemas";
 
 export interface TokenStorage {
@@ -432,6 +442,49 @@ class ProjectsNamespace {
 	}
 }
 
+class LogsNamespace {
+	constructor(private client: CartelClient) {}
+
+	async list(params?: Partial<LogQuery>): Promise<LogsListResponse> {
+		const queryParams = new URLSearchParams();
+		
+		if (params) {
+			Object.entries(params).forEach(([key, value]) => {
+				if (value !== undefined && value !== null) {
+					if (Array.isArray(value)) {
+						queryParams.set(key, value.join(','));
+					} else {
+						queryParams.set(key, String(value));
+					}
+				}
+			});
+		}
+
+		const queryString = queryParams.toString();
+		const path = `/api/admin/logs${queryString ? `?${queryString}` : ''}`;
+		
+		return this.client.request<LogsListResponse>(path);
+	}
+
+	async getStats(): Promise<LogStatsResponse> {
+		return this.client.request<LogStatsResponse>('/api/admin/logs/stats');
+	}
+
+	async cleanup(days?: number): Promise<LogCleanupResponse> {
+		const queryParams = new URLSearchParams();
+		if (days !== undefined) {
+			queryParams.set('days', String(days));
+		}
+		
+		const queryString = queryParams.toString();
+		const path = `/api/admin/logs/cleanup${queryString ? `?${queryString}` : ''}`;
+		
+		return this.client.request<LogCleanupResponse>(path, {
+			method: 'DELETE',
+		});
+	}
+}
+
 export class CartelClient {
 	tokenStorage: TokenStorage;
 	private refreshPromise: Promise<void> | null = null;
@@ -442,6 +495,7 @@ export class CartelClient {
 	applications: ApplicationsNamespace;
 	users: UsersNamespace;
 	projects: ProjectsNamespace;
+	logs: LogsNamespace;
 
 	constructor(
 		private baseUrl: string,
@@ -460,6 +514,7 @@ export class CartelClient {
 		this.applications = new ApplicationsNamespace(this);
 		this.users = new UsersNamespace(this);
 		this.projects = new ProjectsNamespace(this);
+		this.logs = new LogsNamespace(this);
 	}
 
 	async request<T = any>(
