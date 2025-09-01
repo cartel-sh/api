@@ -22,6 +22,7 @@ export type {
 	User,
 	UserIdentity,
 	Project,
+	ProjectWithUser,
 } from "../shared/schemas";
 
 // Export Zod schemas for validation
@@ -34,6 +35,7 @@ export {
 	ApplicationSchema,
 	UserSchema,
 	ProjectSchema,
+	ProjectWithUserSchema,
 } from "../shared/schemas";
 
 export * from "../schema";

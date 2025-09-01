@@ -216,6 +216,8 @@ export const ProjectWithUserSchema = ProjectSchema.extend({
 	user: z.object({
 		id: z.string(),
 		role: z.string().optional(),
+		ensName: z.string().nullable().optional(),
+		ensAvatar: z.string().nullable().optional(),
 		createdAt: z.string().optional(),
 		updatedAt: z.string().optional(),
 	}).optional(),

@@ -142,6 +142,8 @@ app.openapi(listProjectsRoute, async (c) => {
 							columns: {
 								id: true,
 								role: true,
+								ensName: true,
+								ensAvatar: true,
 								createdAt: true,
 								updatedAt: true,
 							},
@@ -157,6 +159,8 @@ app.openapi(listProjectsRoute, async (c) => {
 							columns: {
 								id: true,
 								role: true,
+								ensName: true,
+								ensAvatar: true,
 								createdAt: true,
 								updatedAt: true,
 							},
@@ -171,6 +175,7 @@ app.openapi(listProjectsRoute, async (c) => {
 			resultCount: results.length,
 			authenticated: true
 		});
+
 		return c.json(results);
 	}
 
@@ -296,7 +301,16 @@ app.openapi(getProjectRoute, async (c) => {
 		return tx.query.projects.findFirst({
 			where: eq(projects.id, projectId),
 			with: {
-				user: true,
+				user: {
+					columns: {
+						id: true,
+						role: true,
+						ensName: true,
+						ensAvatar: true,
+						createdAt: true,
+						updatedAt: true,
+					},
+				},
 			},
 		});
 	});

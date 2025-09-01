@@ -3,6 +3,7 @@ import { SiweMessage } from "siwe";
 import { db, users, userIdentities, apiKeys } from "../../client";
 import { eq, and, or, isNull, gte } from "drizzle-orm";
 import { requestLogging } from "../middleware/logging";
+import { resolveENSProfile } from "../utils/ens";
 import {
 	AuthResponseSchema,
 	RefreshResponseSchema,
@@ -224,10 +225,21 @@ app.openapi(verifyRoute, async (c) => {
 
 		let userId: string;
 
+		logger.info("Resolving ENS profile for address", { address });
+		const ensProfile = await resolveENSProfile(address);
+		logger.info("ENS profile resolved", { 
+			address, 
+			ensName: ensProfile.name,
+			hasAvatar: !!ensProfile.avatar 
+		});
+
 		if (!identity) {
 			logger.info("Creating new user for address", { address });
 			logger.logDatabase("insert", "users");
-			const [newUser] = await db.insert(users).values({}).returning();
+			const [newUser] = await db.insert(users).values({
+				ensName: ensProfile.name,
+				ensAvatar: ensProfile.avatar,
+			}).returning();
 			if (!newUser) {
 				throw new Error("Failed to create user");
 			}
@@ -241,10 +253,32 @@ app.openapi(verifyRoute, async (c) => {
 				isPrimary: true,
 			});
 
-			logger.info("New user created", { userId, address });
+			logger.info("New user created", { userId, address, ensName: ensProfile.name });
 		} else {
 			userId = identity.userId;
 			logger.debug("Existing user found", { userId, address });
+			
+			if (identity.user) {
+				const currentEnsName = identity.user.ensName;
+				const currentEnsAvatar = identity.user.ensAvatar;
+				
+				if (currentEnsName !== ensProfile.name || currentEnsAvatar !== ensProfile.avatar) {
+					logger.info("Updating ENS information for user", { 
+						userId, 
+						oldEnsName: currentEnsName,
+						newEnsName: ensProfile.name,
+						hasNewAvatar: !!ensProfile.avatar
+					});
+					
+					await db.update(users)
+						.set({
+							ensName: ensProfile.name,
+							ensAvatar: ensProfile.avatar,
+							updatedAt: new Date(),
+						})
+						.where(eq(users.id, userId));
+				}
+			}
 		}
 
 		logger.debug("Creating access and refresh tokens", { userId });
