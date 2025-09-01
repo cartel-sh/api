@@ -33,12 +33,14 @@ export const adminRole = pgRole('admin', { createRole: false }); // For administ
 export const users = pgTable("users", {
 	id: uuid("id").primaryKey().defaultRandom(),
 	role: text("role").notNull().default('authenticated').$type<UserRole>(),
+	address: text("address"), 
 	ensName: text("ens_name"),
 	ensAvatar: text("ens_avatar"),
 	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 	updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
 	index("users_role_idx").on(table.role),
+	index("users_address_idx").on(table.address),
 	pgPolicy("users_select_authenticated", {
 		as: "permissive",
 		to: authenticatedRole,

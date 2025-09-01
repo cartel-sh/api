@@ -277,7 +277,15 @@ export const RefreshTokenRequestSchema = z.object({
 export const UserMeResponseSchema = z.object({
 	userId: z.string(),
 	address: z.string().optional(),
-	user: z.any(),
+	user: z.object({
+		id: z.string(),
+		role: z.string(),
+		address: z.string().nullable(),
+		ensName: z.string().nullable(),
+		ensAvatar: z.string().nullable(),
+		createdAt: z.string().nullable(),
+		updatedAt: z.string().nullable(),
+	}),
 });
 
 export const RevokeTokensResponseSchema = z.object({

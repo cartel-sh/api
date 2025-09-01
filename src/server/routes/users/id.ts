@@ -87,22 +87,15 @@ app.openapi(getUserByEvmRoute, async (c) => {
 	});
 
 	try {
-		logger.logDatabase("query", "userIdentities", {
+		logger.logDatabase("query", "users", {
 			action: "find_by_evm_address",
-			platform: "evm",
 			address: "***masked***",
 		});
-		const identity = await db.query.userIdentities.findFirst({
-			where: and(
-				eq(userIdentities.platform, "evm"),
-				eq(userIdentities.identity, normalizedAddress),
-			),
-			with: {
-				user: true,
-			},
+		const user = await db.query.users.findFirst({
+			where: eq(users.address, normalizedAddress),
 		});
 
-		if (!identity) {
+		if (!user) {
 			logger.warn("User not found by EVM address", {
 				address: "***masked***",
 			});
@@ -110,22 +103,22 @@ app.openapi(getUserByEvmRoute, async (c) => {
 		}
 
 		logger.info("User retrieved successfully by EVM address", {
-			userId: identity.userId,
-			isPrimary: identity.isPrimary,
-			userCreatedAt: identity.user.createdAt?.toISOString(),
+			userId: user.id,
+			address: "***masked***",
+			userCreatedAt: user.createdAt?.toISOString(),
 		});
 
 		return c.json({
-			userId: identity.userId,
+			userId: user.id,
 			user: {
-				id: identity.user.id,
-				createdAt: identity.user.createdAt?.toISOString() || null,
-				updatedAt: identity.user.updatedAt?.toISOString() || null,
+				id: user.id,
+				createdAt: user.createdAt?.toISOString() || null,
+				updatedAt: user.updatedAt?.toISOString() || null,
 			},
 			identity: {
-				platform: identity.platform,
-				identity: identity.identity,
-				isPrimary: identity.isPrimary,
+				platform: "evm",
+				identity: user.address || "",
+				isPrimary: true, // EVM address is now always primary for user
 			},
 		}, 200);
 	} catch (error) {

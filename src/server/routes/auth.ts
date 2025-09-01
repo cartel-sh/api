@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { SiweMessage } from "siwe";
-import { db, users, userIdentities, apiKeys } from "../../client";
+import { db, users, apiKeys } from "../../client";
 import { eq, and, or, isNull, gte } from "drizzle-orm";
 import { requestLogging } from "../middleware/logging";
 import { resolveENSProfile } from "../utils/ens";
@@ -211,16 +211,10 @@ app.openapi(verifyRoute, async (c) => {
 		const address = siweMessage.address.toLowerCase();
 		logger.info("SIWE signature verified successfully", { address });
 
-		// Find or create user
-		logger.logDatabase("query", "userIdentities", { platform: "evm", address });
-		let identity = await db.query.userIdentities.findFirst({
-			where: and(
-				eq(userIdentities.platform, "evm"),
-				eq(userIdentities.identity, address),
-			),
-			with: {
-				user: true,
-			},
+		// Find or create user by address
+		logger.logDatabase("query", "users", { address });
+		let user = await db.query.users.findFirst({
+			where: eq(users.address, address),
 		});
 
 		let userId: string;
@@ -233,10 +227,11 @@ app.openapi(verifyRoute, async (c) => {
 			hasAvatar: !!ensProfile.avatar 
 		});
 
-		if (!identity) {
+		if (!user) {
 			logger.info("Creating new user for address", { address });
 			logger.logDatabase("insert", "users");
 			const [newUser] = await db.insert(users).values({
+				address,
 				ensName: ensProfile.name,
 				ensAvatar: ensProfile.avatar,
 			}).returning();
@@ -245,39 +240,29 @@ app.openapi(verifyRoute, async (c) => {
 			}
 			userId = newUser.id;
 
-			logger.logDatabase("insert", "userIdentities", { userId, address });
-			await db.insert(userIdentities).values({
-				userId,
-				platform: "evm",
-				identity: address,
-				isPrimary: true,
-			});
-
 			logger.info("New user created", { userId, address, ensName: ensProfile.name });
 		} else {
-			userId = identity.userId;
+			userId = user.id;
 			logger.debug("Existing user found", { userId, address });
 			
-			if (identity.user) {
-				const currentEnsName = identity.user.ensName;
-				const currentEnsAvatar = identity.user.ensAvatar;
+			const currentEnsName = user.ensName;
+			const currentEnsAvatar = user.ensAvatar;
+			
+			if (currentEnsName !== ensProfile.name || currentEnsAvatar !== ensProfile.avatar) {
+				logger.info("Updating ENS information for user", { 
+					userId, 
+					oldEnsName: currentEnsName,
+					newEnsName: ensProfile.name,
+					hasNewAvatar: !!ensProfile.avatar
+				});
 				
-				if (currentEnsName !== ensProfile.name || currentEnsAvatar !== ensProfile.avatar) {
-					logger.info("Updating ENS information for user", { 
-						userId, 
-						oldEnsName: currentEnsName,
-						newEnsName: ensProfile.name,
-						hasNewAvatar: !!ensProfile.avatar
-					});
-					
-					await db.update(users)
-						.set({
-							ensName: ensProfile.name,
-							ensAvatar: ensProfile.avatar,
-							updatedAt: new Date(),
-						})
-						.where(eq(users.id, userId));
-				}
+				await db.update(users)
+					.set({
+						ensName: ensProfile.name,
+						ensAvatar: ensProfile.avatar,
+						updatedAt: new Date(),
+					})
+					.where(eq(users.id, userId));
 			}
 		}
 
@@ -434,11 +419,6 @@ app.openapi(getMeRoute, async (c) => {
 	logger.logDatabase("query", "users", { userId: payload.userId });
 	const user = await db.query.users.findFirst({
 		where: eq(users.id, payload.userId),
-		with: {
-			identities: {
-				where: eq(userIdentities.platform, "evm"),
-			},
-		},
 	});
 
 	if (!user) {
@@ -448,9 +428,7 @@ app.openapi(getMeRoute, async (c) => {
 		return c.json({ error: "User not found" }, 404);
 	}
 
-	// Get primary EVM address if exists
-	const primaryIdentity = user.identities.find(i => i.isPrimary);
-	const address = primaryIdentity?.identity;
+	const address = user.address;
 
 	logger.info("User profile retrieved successfully", {
 		userId: payload.userId,
@@ -460,7 +438,7 @@ app.openapi(getMeRoute, async (c) => {
 	return c.json(
 		{
 			userId: payload.userId,
-			address,
+			address: address || undefined,
 			user,
 		},
 		200,
