@@ -213,7 +213,12 @@ export const ProjectSchema = z.object({
 });
 
 export const ProjectWithUserSchema = ProjectSchema.extend({
-	user: z.any().optional(),
+	user: z.object({
+		id: z.string(),
+		role: z.string().optional(),
+		createdAt: z.string().optional(),
+		updatedAt: z.string().optional(),
+	}).optional(),
 });
 
 export const ProjectQuerySchema = z.object({
@@ -230,7 +235,7 @@ export const PopularTagSchema = z.object({
 	count: z.number(),
 });
 
-export const ProjectListResponseSchema = z.array(ProjectSchema);
+export const ProjectListResponseSchema = z.array(ProjectWithUserSchema);
 
 export const PopularTagsResponseSchema = z.array(PopularTagSchema);
 

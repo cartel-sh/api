@@ -131,15 +131,40 @@ app.openapi(listProjectsRoute, async (c) => {
 				conditions.push(eq(projects.userId, userId));
 			}
 
-			const query = tx.select().from(projects);
 			const finalQuery = conditions.length > 0
-				? query.where(and(...conditions))
-				: query;
+				? tx.query.projects.findMany({
+					where: and(...conditions),
+					orderBy: desc(projects.createdAt),
+					limit,
+					offset,
+					with: {
+						user: {
+							columns: {
+								id: true,
+								role: true,
+								createdAt: true,
+								updatedAt: true,
+							},
+						},
+					},
+				})
+				: tx.query.projects.findMany({
+					orderBy: desc(projects.createdAt),
+					limit,
+					offset,
+					with: {
+						user: {
+							columns: {
+								id: true,
+								role: true,
+								createdAt: true,
+								updatedAt: true,
+							},
+						},
+					},
+				});
 
-			return await finalQuery
-				.orderBy(desc(projects.createdAt))
-				.limit(limit)
-				.offset(offset);
+			return await finalQuery;
 		});
 
 		logger.info("Projects query completed", { 
@@ -179,15 +204,40 @@ app.openapi(listProjectsRoute, async (c) => {
 			conditions.push(arrayContains(projects.tags, tagArray));
 		}
 
-		const query = tx.select().from(projects);
 		const finalQuery = conditions.length > 0
-			? query.where(and(...conditions))
-			: query;
+			? tx.query.projects.findMany({
+				where: and(...conditions),
+				orderBy: desc(projects.createdAt),
+				limit,
+				offset,
+				with: {
+					user: {
+						columns: {
+							id: true,
+							role: true,
+							createdAt: true,
+							updatedAt: true,
+						},
+					},
+				},
+			})
+			: tx.query.projects.findMany({
+				orderBy: desc(projects.createdAt),
+				limit,
+				offset,
+				with: {
+					user: {
+						columns: {
+							id: true,
+							role: true,
+							createdAt: true,
+							updatedAt: true,
+						},
+					},
+				},
+			});
 
-		return await finalQuery
-			.orderBy(desc(projects.createdAt))
-			.limit(limit)
-			.offset(offset);
+		return await finalQuery;
 	});
 
 	return c.json(results);
