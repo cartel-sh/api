@@ -31,30 +31,37 @@ import type { UserRole } from "./schema";
 /**
  * Execute a database operation with RLS user context
  * Sets both user ID and PostgreSQL role for the transaction, enabling RLS policies
+ * 
+ * Note: PostgreSQL's SET LOCAL doesn't support parameterized values, so we must use sql.raw() here. 
  */
 export async function withUser<T>(
 	userId: string | null,
 	userRole: UserRole | 'public' | null,
 	callback: (tx: any) => Promise<T>,
 ): Promise<T> {
-	// Use a transaction to set the user context and role
+	if (userId && !/^[a-zA-Z0-9-_]+$/.test(userId)) {
+		throw new Error('Invalid user ID format');
+	}
+
+	if (userRole && !['admin', 'member', 'public'].includes(userRole)) {
+		throw new Error('Invalid user role');
+	}
+	
 	return db.transaction(async (tx) => {
-		// Set the user ID for RLS policies
 		if (userId) {
-			await tx.execute(sql`SET LOCAL app.current_user_id = ${userId}`);
+			await tx.execute(sql`SET LOCAL app.current_user_id = '${sql.raw(userId)}'`);
 		}
 		
-		// Map our application roles to PostgreSQL roles
+		// Map our roles to PostgreSQL roles
 		if (userRole) {
-			// Store the role for RLS policies to check
-			await tx.execute(sql`SET LOCAL app.current_user_role = ${userRole}`);
+			await tx.execute(sql`SET LOCAL app.current_user_role = '${sql.raw(userRole)}'`);
 			
 			// Map to actual PostgreSQL role if we have proper privileges
 			// const pgRole = userRole === 'public' ? 'public' : userRole;
 			// await tx.execute(sql`SET LOCAL ROLE ${sql.identifier(pgRole)}`);
 		} else if (!userId) {
 			// No user and no role means public access
-			await tx.execute(sql`SET LOCAL app.current_user_role = 'public'`);
+			await tx.execute(sql`SET LOCAL app.current_user_role = '${sql.raw('public')}'`);
 		}
 		
 		return callback(tx);
