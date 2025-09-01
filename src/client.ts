@@ -43,14 +43,15 @@ export async function withUser<T>(
 		// Map our application roles to PostgreSQL roles
 		if (userRole) {
 			// Store the role for RLS policies to check
-			await tx.execute(sql`SET LOCAL app.current_user_role = ${userRole}`);
+			// SET LOCAL doesn't support parameterized values, need to construct the SQL
+			await tx.execute(sql.raw(`SET LOCAL app.current_user_role = '${userRole}'`));
 			
 			// Map to actual PostgreSQL role if we have proper privileges
 			// const pgRole = userRole === 'public' ? 'public' : userRole;
 			// await tx.execute(sql`SET LOCAL ROLE ${sql.identifier(pgRole)}`);
 		} else if (!userId) {
 			// No user and no role means public access
-			await tx.execute(sql`SET LOCAL app.current_user_role = 'public'`);
+			await tx.execute(sql.raw(`SET LOCAL app.current_user_role = 'public'`));
 		}
 		
 		return callback(tx);
