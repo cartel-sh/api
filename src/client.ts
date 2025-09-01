@@ -66,7 +66,7 @@ export async function withPublicAccess<T>(
 	// Public access doesn't set user ID or role, relying on default RLS policies
 	return db.transaction(async (tx) => {
 		// Optionally set role to public explicitly
-		await tx.execute(sql`SET LOCAL ROLE public`);
+		await tx.execute(sql`SET LOCAL ROLE ${sql.identifier('public')}`);
 		return callback(tx);
 	});
 }
