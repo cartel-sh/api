@@ -13,6 +13,7 @@ import type {
 	ApplicationVote,
 	User,
 	UserIdentity,
+	UserMeResponse,
 	Project,
 	ProjectWithUser,
 	SuccessResponse,
@@ -27,6 +28,7 @@ export type {
 	AuthResponse,
 	RefreshResponse,
 	UserIdentityLookup,
+	UserMeResponse,
 	Project,
 	ProjectWithUser,
 	LogQuery,
@@ -154,8 +156,8 @@ class AuthNamespace {
 		return response;
 	}
 
-	async me(): Promise<User> {
-		return this.client.request<User>("/api/auth/me");
+	async me(): Promise<UserMeResponse> {
+		return this.client.request<UserMeResponse>("/api/auth/me");
 	}
 
 	async revoke(): Promise<SuccessResponse> {
