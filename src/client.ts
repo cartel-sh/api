@@ -43,7 +43,7 @@ export async function withUser<T>(
 		throw new Error('Invalid user ID format');
 	}
 
-	if (userRole && !['admin', 'member', 'public'].includes(userRole)) {
+	if (userRole && !['authenticated', 'member', 'admin', 'public'].includes(userRole)) {
 		throw new Error('Invalid user role');
 	}
 	
