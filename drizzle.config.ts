@@ -3,8 +3,12 @@ import { config } from "dotenv";
 
 config();
 
-if (!process.env.DATABASE_URL) {
-	throw new Error("DATABASE_URL environment variable is required");
+const isTestEnv = process.env.NODE_ENV === "test";
+const databaseUrl = isTestEnv ? process.env.TEST_DATABASE_URL : process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+	const envVar = isTestEnv ? "TEST_DATABASE_URL" : "DATABASE_URL";
+	throw new Error(`${envVar} environment variable is required`);
 }
 
 export default defineConfig({
@@ -12,6 +16,8 @@ export default defineConfig({
 	out: "./src/migrations",
 	dialect: "postgresql",
 	dbCredentials: {
-		url: process.env.DATABASE_URL,
+		url: databaseUrl,
 	},
+	verbose: isTestEnv ? false : true, // Reduce noise during tests
+	strict: true,
 });

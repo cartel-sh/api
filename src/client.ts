@@ -3,10 +3,15 @@ import postgres from "postgres";
 import { sql } from "drizzle-orm";
 import * as schema from "./schema";
 
-const databaseUrl = process.env.DATABASE_URL || Bun.env.DATABASE_URL;
+// Use TEST_DATABASE_URL in test environment, DATABASE_URL otherwise
+const isTestEnv = process.env.NODE_ENV === "test";
+const databaseUrl = isTestEnv 
+	? (process.env.TEST_DATABASE_URL || Bun.env.TEST_DATABASE_URL)
+	: (process.env.DATABASE_URL || Bun.env.DATABASE_URL);
 
 if (!databaseUrl) {
-	throw new Error("DATABASE_URL is not set");
+	const envVar = isTestEnv ? "TEST_DATABASE_URL" : "DATABASE_URL";
+	throw new Error(`${envVar} is not set`);
 }
 
 const connectionOptions = {
@@ -37,7 +42,8 @@ export async function withUser<T>(
 	return db.transaction(async (tx) => {
 		// Set the user ID for RLS policies
 		if (userId) {
-			await tx.execute(sql`SET LOCAL app.current_user_id = ${userId}`);
+			// SET LOCAL doesn't support parameterized values, need to construct the SQL
+			await tx.execute(sql.raw(`SET LOCAL app.current_user_id = '${userId}'`));
 		}
 		
 		// Map our application roles to PostgreSQL roles

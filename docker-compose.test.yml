@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  test-postgres:
+    image: postgres:16
+    container_name: cartel-test-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cartel_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: testpassword
+    ports:
+      - "5433:5432"  # Use different port to avoid conflicts
+    volumes:
+      - test_postgres_data:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c log_statement=all
+      -c log_destination=stderr
+      -c log_min_messages=info
+      -c shared_preload_libraries=''
+
+volumes:
+  test_postgres_data:
