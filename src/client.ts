@@ -3,7 +3,6 @@ import postgres from "postgres";
 import { sql } from "drizzle-orm";
 import * as schema from "./schema";
 
-// Use TEST_DATABASE_URL in test environment, DATABASE_URL otherwise
 const isTestEnv = process.env.NODE_ENV === "test";
 const databaseUrl = isTestEnv 
 	? (process.env.TEST_DATABASE_URL || Bun.env.TEST_DATABASE_URL)
@@ -42,22 +41,20 @@ export async function withUser<T>(
 	return db.transaction(async (tx) => {
 		// Set the user ID for RLS policies
 		if (userId) {
-			// SET LOCAL doesn't support parameterized values, need to construct the SQL
-			await tx.execute(sql.raw(`SET LOCAL app.current_user_id = '${userId}'`));
+			await tx.execute(sql`SET LOCAL app.current_user_id = ${userId}`);
 		}
 		
 		// Map our application roles to PostgreSQL roles
 		if (userRole) {
 			// Store the role for RLS policies to check
-			// SET LOCAL doesn't support parameterized values, need to construct the SQL
-			await tx.execute(sql.raw(`SET LOCAL app.current_user_role = '${userRole}'`));
+			await tx.execute(sql`SET LOCAL app.current_user_role = ${userRole}`);
 			
 			// Map to actual PostgreSQL role if we have proper privileges
 			// const pgRole = userRole === 'public' ? 'public' : userRole;
 			// await tx.execute(sql`SET LOCAL ROLE ${sql.identifier(pgRole)}`);
 		} else if (!userId) {
 			// No user and no role means public access
-			await tx.execute(sql.raw(`SET LOCAL app.current_user_role = 'public'`));
+			await tx.execute(sql`SET LOCAL app.current_user_role = 'public'`);
 		}
 		
 		return callback(tx);
