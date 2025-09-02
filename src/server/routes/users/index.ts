@@ -259,7 +259,7 @@ app.openapi(getMembersRoute, async (c) => {
 		}) : null;
 
 		// Only members and admins can see member list
-		if (!currentUser || currentUser.role === "authenticated") {
+		if (!currentUser || (currentUser.role !== "member" && currentUser.role !== "admin")) {
 			logger.warn("Access denied for member listing", {
 				userId,
 				userRole: currentUser?.role,
