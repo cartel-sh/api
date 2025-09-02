@@ -9,6 +9,7 @@ import packageJson from "../../package.json" with { type: "json" };
 import vanishDiscord from "./routes/vanish/discord";
 import practice from "./routes/sessions/practice";
 import applications from "./routes/users/applications";
+import users from "./routes/users/index";
 import id from "./routes/users/id";
 import identities from "./routes/users/identities";
 import adminKeys from "./routes/admin/keys";
@@ -60,6 +61,7 @@ app.use("/api/*", optionalApiKey);
 app.route("/api/vanish/discord", vanishDiscord);
 app.route("/api/sessions/practice", practice);
 app.route("/api/users/applications", applications);
+app.route("/api/users", users);
 app.route("/api/users/id", id);
 app.route("/api/users/identities", identities);
 app.route("/api/admin/keys", adminKeys);
@@ -118,6 +120,7 @@ app.get("/", (c) =>
 			"/api/vanish/discord",
 			"/api/sessions/practice",
 			"/api/users/applications",
+			"/api/users",
 			"/api/users/id",
 			"/api/users/identities",
 			"/api/admin/keys",

@@ -340,6 +340,50 @@ class ApplicationsNamespace {
 class UsersNamespace {
 	constructor(private client: CartelClient) {}
 
+	async list(params?: {
+		role?: "authenticated" | "member" | "admin";
+		limit?: number;
+		offset?: number;
+		includeIdentities?: boolean;
+	}): Promise<{
+		users: User[];
+		total: number;
+		limit: number;
+		offset: number;
+	}> {
+		const searchParams = new URLSearchParams();
+		if (params?.role) searchParams.set("role", params.role);
+		if (params?.limit) searchParams.set("limit", params.limit.toString());
+		if (params?.offset) searchParams.set("offset", params.offset.toString());
+		if (params?.includeIdentities) searchParams.set("includeIdentities", params.includeIdentities.toString());
+
+		const queryString = searchParams.toString();
+		const endpoint = queryString ? `/api/users?${queryString}` : "/api/users";
+		
+		return this.client.request(endpoint);
+	}
+
+	async getMembers(params?: {
+		limit?: number;
+		offset?: number;
+		includeIdentities?: boolean;
+	}): Promise<{
+		members: User[];
+		total: number;
+		limit: number;
+		offset: number;
+	}> {
+		const searchParams = new URLSearchParams();
+		if (params?.limit) searchParams.set("limit", params.limit.toString());
+		if (params?.offset) searchParams.set("offset", params.offset.toString());
+		if (params?.includeIdentities) searchParams.set("includeIdentities", params.includeIdentities.toString());
+
+		const queryString = searchParams.toString();
+		const endpoint = queryString ? `/api/users/members?${queryString}` : "/api/users/members";
+		
+		return this.client.request(endpoint);
+	}
+
 	async getByDiscordId(discordId: string): Promise<{ id: string }> {
 		return this.client.request<{ id: string }>(`/api/users/id/discord/${discordId}`);
 	}
