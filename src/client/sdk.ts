@@ -82,14 +82,14 @@ class LocalStorageTokenStorage implements TokenStorage {
 
 	getAccessToken(): string | null {
 		if (typeof window === "undefined") return null;
-		
+
 		const expiry = localStorage.getItem(this.EXPIRY_KEY);
 		if (expiry && Date.now() >= parseInt(expiry)) {
 			localStorage.removeItem(this.ACCESS_TOKEN_KEY);
 			localStorage.removeItem(this.EXPIRY_KEY);
 			return null;
 		}
-		
+
 		return localStorage.getItem(this.ACCESS_TOKEN_KEY);
 	}
 
@@ -100,7 +100,7 @@ class LocalStorageTokenStorage implements TokenStorage {
 
 	setTokens(accessToken: string, refreshToken: string, expiresIn: number): void {
 		if (typeof window === "undefined") return;
-		
+
 		localStorage.setItem(this.ACCESS_TOKEN_KEY, accessToken);
 		localStorage.setItem(this.REFRESH_TOKEN_KEY, refreshToken);
 		localStorage.setItem(this.EXPIRY_KEY, String(Date.now() + (expiresIn * 1000)));
@@ -108,7 +108,7 @@ class LocalStorageTokenStorage implements TokenStorage {
 
 	clearTokens(): void {
 		if (typeof window === "undefined") return;
-		
+
 		localStorage.removeItem(this.ACCESS_TOKEN_KEY);
 		localStorage.removeItem(this.REFRESH_TOKEN_KEY);
 		localStorage.removeItem(this.EXPIRY_KEY);
@@ -116,7 +116,7 @@ class LocalStorageTokenStorage implements TokenStorage {
 }
 
 class AuthNamespace {
-	constructor(private client: CartelClient) {}
+	constructor(private client: CartelClient) { }
 
 	async verifySiwe(message: string, signature: string): Promise<AuthResponse> {
 		const response = await this.client.request<AuthResponse>("/api/auth/verify", {
@@ -136,7 +136,7 @@ class AuthNamespace {
 
 	async refresh(): Promise<RefreshResponse> {
 		const refreshToken = this.client.tokenStorage.getRefreshToken();
-		
+
 		if (!refreshToken) {
 			throw new Error("No refresh token available");
 		}
@@ -164,9 +164,9 @@ class AuthNamespace {
 		const response = await this.client.request<SuccessResponse>("/api/auth/revoke", {
 			method: "POST",
 		});
-		
+
 		this.client.tokenStorage.clearTokens();
-		
+
 		return response;
 	}
 
@@ -176,7 +176,7 @@ class AuthNamespace {
 }
 
 class VanishNamespace {
-	constructor(private client: CartelClient) {}
+	constructor(private client: CartelClient) { }
 
 	async create(params: {
 		channelId: string;
@@ -206,7 +206,7 @@ class VanishNamespace {
 	}
 
 	async updateStats(
-		channelId: string, 
+		channelId: string,
 		deletedCount: number
 	): Promise<VanishingChannelStats> {
 		return this.client.request<VanishingChannelStats>(`/api/vanish/discord/${channelId}/stats`, {
@@ -217,7 +217,7 @@ class VanishNamespace {
 }
 
 class PracticeNamespace {
-	constructor(private client: CartelClient) {}
+	constructor(private client: CartelClient) { }
 
 	async start(params: {
 		discordId?: string;
@@ -230,9 +230,9 @@ class PracticeNamespace {
 		});
 	}
 
-	async stop(params: { 
-		discordId?: string; 
-		userId?: string 
+	async stop(params: {
+		discordId?: string;
+		userId?: string
 	}): Promise<PracticeSession> {
 		return this.client.request<PracticeSession>("/api/sessions/practice/stop", {
 			method: "POST",
@@ -255,8 +255,8 @@ class PracticeNamespace {
 			throw new Error("Either discordId or userId must be provided for stats");
 		}
 
-		const identifier = params.discordId 
-			? `discord/${params.discordId}` 
+		const identifier = params.discordId
+			? `discord/${params.discordId}`
 			: `user/${params.userId}`;
 
 		if (type === 'daily') {
@@ -280,7 +280,7 @@ class PracticeNamespace {
 }
 
 class ApplicationsNamespace {
-	constructor(private client: CartelClient) {}
+	constructor(private client: CartelClient) { }
 
 	async create(params: {
 		messageId: string;
@@ -338,7 +338,7 @@ class ApplicationsNamespace {
 }
 
 class UsersNamespace {
-	constructor(private client: CartelClient) {}
+	constructor(private client: CartelClient) { }
 
 	async list(params?: {
 		role?: "authenticated" | "member" | "admin";
@@ -359,7 +359,7 @@ class UsersNamespace {
 
 		const queryString = searchParams.toString();
 		const endpoint = queryString ? `/api/users?${queryString}` : "/api/users";
-		
+
 		return this.client.request(endpoint);
 	}
 
@@ -380,7 +380,7 @@ class UsersNamespace {
 
 		const queryString = searchParams.toString();
 		const endpoint = queryString ? `/api/users/members?${queryString}` : "/api/users/members";
-		
+
 		return this.client.request(endpoint);
 	}
 
@@ -421,7 +421,7 @@ class UsersNamespace {
 }
 
 class ProjectsNamespace {
-	constructor(private client: CartelClient) {}
+	constructor(private client: CartelClient) { }
 
 	async list(params?: {
 		search?: string;
@@ -441,7 +441,7 @@ class ProjectsNamespace {
 
 		const queryString = searchParams.toString();
 		const endpoint = queryString ? `/api/projects?${queryString}` : "/api/projects";
-		
+
 		return this.client.request<Project[]>(endpoint);
 	}
 
@@ -492,11 +492,11 @@ class ProjectsNamespace {
 }
 
 class LogsNamespace {
-	constructor(private client: CartelClient) {}
+	constructor(private client: CartelClient) { }
 
 	async list(params?: Partial<LogQuery>): Promise<LogsListResponse> {
 		const queryParams = new URLSearchParams();
-		
+
 		if (params) {
 			Object.entries(params).forEach(([key, value]) => {
 				if (value !== undefined && value !== null) {
@@ -511,7 +511,7 @@ class LogsNamespace {
 
 		const queryString = queryParams.toString();
 		const path = `/api/admin/logs${queryString ? `?${queryString}` : ''}`;
-		
+
 		return this.client.request<LogsListResponse>(path);
 	}
 
@@ -524,10 +524,10 @@ class LogsNamespace {
 		if (days !== undefined) {
 			queryParams.set('days', String(days));
 		}
-		
+
 		const queryString = queryParams.toString();
 		const path = `/api/admin/logs/cleanup${queryString ? `?${queryString}` : ''}`;
-		
+
 		return this.client.request<LogCleanupResponse>(path, {
 			method: 'DELETE',
 		});
@@ -551,9 +551,9 @@ export class CartelClient {
 		private apiKey?: string,
 		tokenStorage?: TokenStorage,
 	) {
-		this.tokenStorage = tokenStorage || 
-			(typeof window !== "undefined" 
-				? new LocalStorageTokenStorage() 
+		this.tokenStorage = tokenStorage ||
+			(typeof window !== "undefined"
+				? new LocalStorageTokenStorage()
 				: new InMemoryTokenStorage());
 
 		// Initialize namespaces
@@ -583,7 +583,7 @@ export class CartelClient {
 		// Include bearer token if available and not skipped
 		if (!options.skipAuth) {
 			const accessToken = this.tokenStorage.getAccessToken();
-			
+
 			if (accessToken) {
 				headers["Authorization"] = `Bearer ${accessToken}`;
 			} else {
@@ -597,11 +597,12 @@ export class CartelClient {
 						})
 						.catch((error) => {
 							this.refreshPromise = null;
+							this.tokenStorage.clearTokens();
 							throw error;
 						});
-					
+
 					await this.refreshPromise;
-					
+
 					// Get the new access token
 					const newAccessToken = this.tokenStorage.getAccessToken();
 					if (newAccessToken) {
@@ -621,21 +622,43 @@ export class CartelClient {
 			// If we get 401 and have a refresh token, try to refresh once
 			if (response.status === 401 && !options.skipAuth) {
 				const refreshToken = this.tokenStorage.getRefreshToken();
+
 				if (refreshToken && !this.refreshPromise) {
-					await this.auth.refresh();
-					
-					// Retry the request with new token
-					const newAccessToken = this.tokenStorage.getAccessToken();
-					if (newAccessToken) {
-						headers["Authorization"] = `Bearer ${newAccessToken}`;
-						const retryResponse = await fetch(`${this.baseUrl}${path}`, {
-							...fetchOptions,
-							headers,
+					this.refreshPromise = this.auth.refresh().then(() => { this.refreshPromise = null; })
+						.catch((error) => {
+							this.refreshPromise = null;
+							this.tokenStorage.clearTokens();
+							throw error;
 						});
-						
-						if (retryResponse.ok) {
-							return retryResponse.json() as Promise<T>;
+
+					try {
+						await this.refreshPromise;
+
+						// Retry the request with new token
+						const newAccessToken = this.tokenStorage.getAccessToken();
+						if (newAccessToken) {
+							headers["Authorization"] = `Bearer ${newAccessToken}`;
+							const retryResponse = await fetch(`${this.baseUrl}${path}`, {
+								...fetchOptions,
+								headers,
+							});
+
+							if (retryResponse.ok) {
+								return retryResponse.json() as Promise<T>;
+							}
+
+							// If retry also fails with 401, clear tokens
+							if (retryResponse.status === 401) {
+								this.tokenStorage.clearTokens();
+							}
+
+							const retryError = await retryResponse.text();
+							throw new Error(`API Error (${retryResponse.status}): ${retryError}`);
 						}
+					} catch (error) {
+						// If refresh fails, clear tokens and throw original error
+						this.tokenStorage.clearTokens();
+						throw error;
 					}
 				}
 			}
