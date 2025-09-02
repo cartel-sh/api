@@ -1,7 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { desc, eq, sql } from "drizzle-orm";
 import { db, applications, applicationVotes } from "../../../client";
-import { requireJwtAuth } from "../../middleware/auth";
 import { requestLogging } from "../../middleware/logging";
 import {
 	CreateApplicationSchema,
@@ -377,7 +376,6 @@ const updateApplicationStatusRoute = createRoute({
 	path: "/{id}/status",
 	summary: "Update Application Status",
 	description: "Updates the status of an application to approved or rejected (requires authentication).",
-	middleware: [requireJwtAuth],
 	request: {
 		params: z.object({
 			id: z.string(),
@@ -458,7 +456,6 @@ const deleteApplicationRoute = createRoute({
 	path: "/{id}",
 	summary: "Delete Application",
 	description: "Deletes an application by its ID (requires authentication).",
-	middleware: [requireJwtAuth],
 	request: {
 		params: z.object({
 			id: z.string(),

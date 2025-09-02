@@ -6,7 +6,7 @@ import {
 	hashApiKey,
 	getApiKeyPrefix,
 } from "../../utils/crypto";
-import { requireJwtAuth } from "../../middleware/auth";
+import { requireAdmin } from "../../middleware/auth";
 import { requestLogging } from "../../middleware/logging";
 
 type Variables = {
@@ -17,14 +17,13 @@ type Variables = {
 const app = new OpenAPIHono<{ Variables: Variables }>();
 
 app.use("*", requestLogging());
-app.use("*", requireJwtAuth);
+app.use("*", requireAdmin);
 
 const createApiKeyRoute = createRoute({
 	method: "post",
 	path: "/",
 	summary: "Create API Key",
 	description: "Creates a new API key for a user with specified permissions and settings (requires authentication).",
-	middleware: [requireJwtAuth],
 	request: {
 		body: {
 			content: {
@@ -181,7 +180,6 @@ const listApiKeysRoute = createRoute({
 	path: "/",
 	summary: "List API Keys",
 	description: "Lists all API keys, optionally filtered by user ID (requires authentication).",
-	middleware: [requireJwtAuth],
 	request: {
 		query: z.object({
 			userId: z.string().optional(),
@@ -292,7 +290,6 @@ const getApiKeyRoute = createRoute({
 	path: "/{id}",
 	summary: "Get API Key",
 	description: "Retrieves details of a specific API key by its ID (requires authentication).",
-	middleware: [requireJwtAuth],
 	request: {
 		params: z.object({
 			id: z.string(),
@@ -409,7 +406,6 @@ const updateApiKeyRoute = createRoute({
 	path: "/{id}",
 	summary: "Update API Key",
 	description: "Updates an existing API key's properties such as name, description, or status (requires authentication).",
-	middleware: [requireJwtAuth],
 	request: {
 		params: z.object({
 			id: z.string(),
@@ -530,7 +526,6 @@ const deleteApiKeyRoute = createRoute({
 	path: "/{id}",
 	summary: "Delete API Key",
 	description: "Deactivates an API key by setting its status to inactive (requires authentication).",
-	middleware: [requireJwtAuth],
 	request: {
 		params: z.object({
 			id: z.string(),
@@ -618,7 +613,6 @@ const rotateApiKeyRoute = createRoute({
 	path: "/{id}/rotate",
 	summary: "Rotate API Key",
 	description: "Generates a new API key and sets a grace period for the old one (requires authentication).",
-	middleware: [requireJwtAuth],
 	request: {
 		params: z.object({
 			id: z.string(),

@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq, sql } from "drizzle-orm";
 import { db, userIdentities, users } from "../../../client";
-import { requireJwtAuth } from "../../middleware/auth";
+import { requireAdmin } from "../../middleware/auth";
 import { requestLogging } from "../../middleware/logging";
 
 type Variables = {
@@ -12,7 +12,7 @@ type Variables = {
 const app = new OpenAPIHono<{ Variables: Variables }>();
 
 app.use("*", requestLogging());
-app.use("*", requireJwtAuth);
+app.use("*", requireAdmin);
 
 const PlatformEnum = z.enum([
 	"discord",
@@ -27,7 +27,6 @@ const connectIdentityRoute = createRoute({
 	path: "/connect",
 	summary: "Connect Identity",
 	description: "Connects a new identity to an existing user account (requires authentication).",
-	middleware: [requireJwtAuth],
 	request: {
 		body: {
 			content: {
@@ -191,7 +190,6 @@ const disconnectIdentityRoute = createRoute({
 	path: "/disconnect",
 	summary: "Disconnect Identity",
 	description: "Disconnects an identity from a user account, ensuring at least one identity remains (requires authentication).",
-	middleware: [requireJwtAuth],
 	request: {
 		body: {
 			content: {
@@ -348,7 +346,6 @@ const setPrimaryRoute = createRoute({
 	path: "/set-primary",
 	summary: "Set Primary Identity",
 	description: "Sets an identity as the primary identity for a user account (requires authentication).",
-	middleware: [requireJwtAuth],
 	request: {
 		body: {
 			content: {
@@ -475,7 +472,6 @@ const mergeUsersRoute = createRoute({
 	path: "/merge-users",
 	summary: "Merge Users",
 	description: "Merges two user accounts by transferring all identities from the source user to the target user (requires authentication).",
-	middleware: [requireJwtAuth],
 	request: {
 		body: {
 			content: {

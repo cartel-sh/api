@@ -2,7 +2,6 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { db, projects, withUser } from "../../client";
 import type { NewProject, UserRole } from "../../schema";
 import { eq, and, or, desc, ilike, arrayContains, sql } from "drizzle-orm";
-import { requireAuth, withJwtAuth, requireJwtAuth } from "../middleware/auth";
 import { requestLogging } from "../middleware/logging";
 import {
 	CreateProjectSchema,
@@ -29,7 +28,6 @@ type Variables = {
 const app = new OpenAPIHono<{ Variables: Variables }>();
 
 app.use("*", requestLogging());
-app.use("*", withJwtAuth);
 
 const listProjectsRoute = createRoute({
 	method: "get",
@@ -327,7 +325,6 @@ const createProjectRoute = createRoute({
 	path: "/",
 	description: "Create a new project for the authenticated user",
 	summary: "Create project",
-	middleware: [requireJwtAuth, requireAuth],
 	request: {
 		body: {
 			content: {
@@ -418,7 +415,6 @@ const updateProjectRoute = createRoute({
 	path: "/{id}",
 	description: "Update an existing project owned by the authenticated user",
 	summary: "Update project",
-	middleware: [requireJwtAuth, requireAuth],
 	request: {
 		params: z.object({
 			id: z.string(),
@@ -482,7 +478,6 @@ const deleteProjectRoute = createRoute({
 	path: "/{id}",
 	description: "Delete a project owned by the authenticated user",
 	summary: "Delete project",
-	middleware: [requireJwtAuth, requireAuth],
 	request: {
 		params: z.object({
 			id: z.string(),

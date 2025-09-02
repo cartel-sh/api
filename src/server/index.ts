@@ -3,7 +3,7 @@ import { Scalar } from "@scalar/hono-api-reference";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { config } from "dotenv";
-import { optionalApiKey } from "./middleware/auth";
+import { combinedAuth } from "./middleware/auth";
 
 import packageJson from "../../package.json" with { type: "json" };
 import vanishDiscord from "./routes/vanish/discord";
@@ -56,7 +56,13 @@ app.use(
 	}),
 );
 app.use("*", logger());
-app.use("/api/*", optionalApiKey);
+
+// Apply auth middleware to specific routes that need it
+app.use("/api/vanish/*", combinedAuth);
+app.use("/api/sessions/*", combinedAuth);
+app.use("/api/users/*", combinedAuth);
+app.use("/api/admin/*", combinedAuth);
+app.use("/api/projects/*", combinedAuth);
 
 app.route("/api/vanish/discord", vanishDiscord);
 app.route("/api/sessions/practice", practice);

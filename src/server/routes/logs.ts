@@ -2,7 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { db, logs } from "../../client";
 import type { UserRole } from "../../schema";
 import { eq, and, desc, asc, gte, lte, like, sql } from "drizzle-orm";
-import { requireRole, withJwtAuth } from "../middleware/auth";
+import { requireAdmin } from "../middleware/auth";
 import { requestLogging } from "../middleware/logging";
 import {
 	LogQuerySchema,
@@ -25,8 +25,7 @@ type Variables = {
 const app = new OpenAPIHono<{ Variables: Variables }>();
 
 app.use("*", requestLogging());
-app.use("*", withJwtAuth);
-app.use("*", requireRole("admin"));
+app.use("*", requireAdmin);
 
 // Create a modified LogQuery schema for route parsing (string to number transforms)
 const RouteLogQuerySchema = z.object({
