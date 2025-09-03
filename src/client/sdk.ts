@@ -418,6 +418,51 @@ class UsersNamespace {
 			},
 		);
 	}
+
+	async getMyIdentities(): Promise<UserIdentity[]> {
+		return this.client.request<UserIdentity[]>("/api/users/me/identities");
+	}
+
+	async connectMyIdentity(params: {
+		platform: string;
+		identity: string;
+		metadata?: {
+			username?: string;
+			displayName?: string;
+			avatarUrl?: string;
+			email?: string;
+			bio?: string;
+			profileUrl?: string;
+		} | null;
+		verifiedAt?: string;
+		isPrimary?: boolean;
+	}): Promise<{
+		message: string;
+		identity: UserIdentity;
+		reassigned: boolean;
+		previousUserId?: string;
+	}> {
+		return this.client.request("/api/users/me/identities/connect", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
+	}
+
+	async disconnectMyIdentity(platform: string, identity: string): Promise<{ message: string }> {
+		return this.client.request(
+			`/api/users/me/identities/${platform}/${encodeURIComponent(identity)}`,
+			{
+				method: "DELETE",
+			},
+		);
+	}
+
+	async setPrimaryIdentity(platform: string, identity: string): Promise<{ message: string }> {
+		return this.client.request("/api/users/me/identities/primary", {
+			method: "PUT",
+			body: JSON.stringify({ platform, identity }),
+		});
+	}
 }
 
 class ProjectsNamespace {

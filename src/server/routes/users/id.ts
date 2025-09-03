@@ -23,6 +23,7 @@ const PlatformEnum = z.enum([
 	"lens",
 	"farcaster",
 	"telegram",
+	"github",
 ]);
 
 const getUserByEvmRoute = createRoute({

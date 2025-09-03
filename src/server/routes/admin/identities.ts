@@ -20,6 +20,7 @@ const PlatformEnum = z.enum([
 	"lens",
 	"farcaster",
 	"telegram",
+	"github",
 ]);
 
 const connectIdentityRoute = createRoute({

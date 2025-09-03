@@ -95,9 +95,21 @@ export const userIdentities = pgTable(
 		userId: uuid("user_id")
 			.notNull()
 			.references(() => users.id, { onDelete: "cascade" }),
-		platform: text("platform").notNull(), // 'discord', 'evm', 'lens', 'farcaster', 'telegram'
+		platform: text("platform").notNull(), // 'discord', 'evm', 'lens', 'farcaster', 'telegram', 'github'
 		identity: text("identity").notNull(),
 		isPrimary: boolean("is_primary").default(false).notNull(),
+		metadata: json("metadata").$type<{
+			username?: string;
+			displayName?: string;
+			avatarUrl?: string;
+			email?: string;
+			bio?: string;
+			profileUrl?: string;
+		}>(), 
+		verifiedAt: timestamp("verified_at", { withTimezone: true }), 
+		oauthAccessToken: text("oauth_access_token"), 
+		oauthRefreshToken: text("oauth_refresh_token"), 
+		oauthTokenExpiresAt: timestamp("oauth_token_expires_at", { withTimezone: true }), 
 		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 		updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 	},
