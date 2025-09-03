@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { and, eq, sql } from "drizzle-orm";
-import { db, userIdentities, users } from "../../../../client";
+import { db, userIdentities, users, practiceSessions, projects } from "../../../../client";
 import { requireAuth } from "../../../middleware/auth";
 import { requestLogging } from "../../../middleware/logging";
 
@@ -274,6 +274,53 @@ app.openapi(connectIdentityRoute, async (c) => {
 						eq(userIdentities.identity, normalizedIdentity),
 					),
 				);
+
+			logger.info("Starting data migration from previous user", {
+				fromUserId: previousUserId,
+				toUserId: userId,
+			});
+
+			logger.logDatabase("update", "practiceSessions", {
+				action: "migrate_user_data",
+				fromUserId: previousUserId,
+				toUserId: userId,
+			});
+			await db
+				.update(practiceSessions)
+				.set({ userId })
+				.where(eq(practiceSessions.userId, previousUserId));
+
+			logger.logDatabase("update", "projects", {
+				action: "migrate_user_data",
+				fromUserId: previousUserId,
+				toUserId: userId,
+			});
+			await db
+				.update(projects)
+				.set({ userId, updatedAt: new Date() })
+				.where(eq(projects.userId, previousUserId));
+
+			const remainingIdentities = await db.query.userIdentities.findMany({
+				where: eq(userIdentities.userId, previousUserId),
+			});
+
+			if (remainingIdentities.length === 0) {
+				logger.info("Deleting dummy user with no remaining identities", {
+					userId: previousUserId,
+				});
+				logger.logDatabase("delete", "users", {
+					action: "delete_dummy_user",
+					userId: previousUserId,
+				});
+				await db.delete(users).where(eq(users.id, previousUserId));
+			}
+
+			logger.info("Data migration completed successfully", {
+				fromUserId: previousUserId,
+				toUserId: userId,
+				dummyUserDeleted: remainingIdentities.length === 0,
+			});
+
 			reassigned = true;
 		} else {
 			// Create new identity
