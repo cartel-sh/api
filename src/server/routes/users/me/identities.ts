@@ -240,97 +240,115 @@ app.openapi(connectIdentityRoute, async (c) => {
 
 		if (existingIdentity) {
 			if (existingIdentity.userId === userId) {
-				logger.warn("Identity already connected to this user", {
+				logger.info("Identity already connected to this user, updating with new data", {
+					userId,
+					platform,
+					hasNewOAuthToken: !!oauthAccessToken,
+				});
+				
+				logger.logDatabase("update", "userIdentities", {
+					action: "update_existing_identity",
 					userId,
 					platform,
 				});
-				return c.json(
-					{ error: "Identity already connected to this user" },
-					400,
-				);
-			}
-
-			// Reassign identity from another user
-			previousUserId = existingIdentity.userId;
-			logger.info("Reassigning identity from another user", {
-				fromUserId: previousUserId,
-				toUserId: userId,
-				platform,
-			});
-
-			// Update the identity to the new user
-			logger.logDatabase("update", "userIdentities", {
-				action: "reassign_identity",
-				fromUserId: previousUserId,
-				toUserId: userId,
-				platform,
-			});
-			await db
-				.update(userIdentities)
-				.set({
-					userId,
-					metadata: metadata || existingIdentity.metadata,
-					verifiedAt: verifiedAt ? new Date(verifiedAt) : existingIdentity.verifiedAt,
-					isPrimary: false, // Reset primary when reassigning
-					oauthAccessToken: oauthAccessToken || existingIdentity.oauthAccessToken,
-					oauthRefreshToken: oauthRefreshToken || existingIdentity.oauthRefreshToken,
-					oauthTokenExpiresAt: oauthTokenExpiresAt ? new Date(oauthTokenExpiresAt) : existingIdentity.oauthTokenExpiresAt,
-					updatedAt: new Date(),
-				})
-				.where(
-					and(
-						eq(userIdentities.platform, platform),
-						eq(userIdentities.identity, normalizedIdentity),
-					),
-				);
-
-			logger.info("Starting data migration from previous user", {
-				fromUserId: previousUserId,
-				toUserId: userId,
-			});
-
-			logger.logDatabase("update", "practiceSessions", {
-				action: "migrate_user_data",
-				fromUserId: previousUserId,
-				toUserId: userId,
-			});
-			await db
-				.update(practiceSessions)
-				.set({ userId })
-				.where(eq(practiceSessions.userId, previousUserId));
-
-			logger.logDatabase("update", "projects", {
-				action: "migrate_user_data",
-				fromUserId: previousUserId,
-				toUserId: userId,
-			});
-			await db
-				.update(projects)
-				.set({ userId, updatedAt: new Date() })
-				.where(eq(projects.userId, previousUserId));
-
-			const remainingIdentities = await db.query.userIdentities.findMany({
-				where: eq(userIdentities.userId, previousUserId),
-			});
-
-			if (remainingIdentities.length === 0) {
-				logger.info("Deleting dummy user with no remaining identities", {
-					userId: previousUserId,
+				await db
+					.update(userIdentities)
+					.set({
+						metadata: metadata || existingIdentity.metadata,
+						verifiedAt: verifiedAt ? new Date(verifiedAt) : existingIdentity.verifiedAt,
+						isPrimary: isPrimary !== undefined ? isPrimary : existingIdentity.isPrimary,
+						oauthAccessToken: oauthAccessToken || existingIdentity.oauthAccessToken,
+						oauthRefreshToken: oauthRefreshToken || existingIdentity.oauthRefreshToken,
+						oauthTokenExpiresAt: oauthTokenExpiresAt ? new Date(oauthTokenExpiresAt) : existingIdentity.oauthTokenExpiresAt,
+						updatedAt: new Date(),
+					})
+					.where(
+						and(
+							eq(userIdentities.platform, platform),
+							eq(userIdentities.identity, normalizedIdentity),
+						),
+					);
+			} else {
+				previousUserId = existingIdentity.userId;
+				logger.info("Reassigning identity from another user", {
+					fromUserId: previousUserId,
+					toUserId: userId,
+					platform,
 				});
-				logger.logDatabase("delete", "users", {
-					action: "delete_dummy_user",
-					userId: previousUserId,
+
+				logger.logDatabase("update", "userIdentities", {
+					action: "reassign_identity",
+					fromUserId: previousUserId,
+					toUserId: userId,
+					platform,
 				});
-				await db.delete(users).where(eq(users.id, previousUserId));
+				await db
+					.update(userIdentities)
+					.set({
+						userId,
+						metadata: metadata || existingIdentity.metadata,
+						verifiedAt: verifiedAt ? new Date(verifiedAt) : existingIdentity.verifiedAt,
+						isPrimary: false, 
+						oauthAccessToken: oauthAccessToken || existingIdentity.oauthAccessToken,
+						oauthRefreshToken: oauthRefreshToken || existingIdentity.oauthRefreshToken,
+						oauthTokenExpiresAt: oauthTokenExpiresAt ? new Date(oauthTokenExpiresAt) : existingIdentity.oauthTokenExpiresAt,
+						updatedAt: new Date(),
+					})
+					.where(
+						and(
+							eq(userIdentities.platform, platform),
+							eq(userIdentities.identity, normalizedIdentity),
+						),
+					);
+
+				logger.info("Starting data migration from previous user", {
+					fromUserId: previousUserId,
+					toUserId: userId,
+				});
+
+				logger.logDatabase("update", "practiceSessions", {
+					action: "migrate_user_data",
+					fromUserId: previousUserId,
+					toUserId: userId,
+				});
+				await db
+					.update(practiceSessions)
+					.set({ userId })
+					.where(eq(practiceSessions.userId, previousUserId));
+
+				logger.logDatabase("update", "projects", {
+					action: "migrate_user_data",
+					fromUserId: previousUserId,
+					toUserId: userId,
+				});
+				await db
+					.update(projects)
+					.set({ userId, updatedAt: new Date() })
+					.where(eq(projects.userId, previousUserId));
+
+				const remainingIdentities = await db.query.userIdentities.findMany({
+					where: eq(userIdentities.userId, previousUserId),
+				});
+
+				if (remainingIdentities.length === 0) {
+					logger.info("Deleting dummy user with no remaining identities", {
+						userId: previousUserId,
+					});
+					logger.logDatabase("delete", "users", {
+						action: "delete_dummy_user",
+						userId: previousUserId,
+					});
+					await db.delete(users).where(eq(users.id, previousUserId));
+				}
+
+				logger.info("Data migration completed successfully", {
+					fromUserId: previousUserId,
+					toUserId: userId,
+					dummyUserDeleted: remainingIdentities.length === 0,
+				});
+
+				reassigned = true;
 			}
-
-			logger.info("Data migration completed successfully", {
-				fromUserId: previousUserId,
-				toUserId: userId,
-				dummyUserDeleted: remainingIdentities.length === 0,
-			});
-
-			reassigned = true;
 		} else {
 			// Create new identity
 			if (isPrimary) {
