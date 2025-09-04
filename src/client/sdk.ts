@@ -620,12 +620,7 @@ export class CartelClient {
 			...options.headers,
 		};
 
-		// Include API key if provided (for initial auth)
-		if (this.apiKey) {
-			headers["X-API-Key"] = this.apiKey;
-		}
-
-		// Include bearer token if available and not skipped
+		// Prefer bearer token over API key for user authentication
 		if (!options.skipAuth) {
 			const accessToken = this.tokenStorage.getAccessToken();
 
@@ -653,6 +648,10 @@ export class CartelClient {
 					if (newAccessToken) {
 						headers["Authorization"] = `Bearer ${newAccessToken}`;
 					}
+				}
+				
+				if (!headers["Authorization"] && this.apiKey) {
+					headers["X-API-Key"] = this.apiKey;
 				}
 			}
 		}
