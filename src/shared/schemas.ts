@@ -165,6 +165,16 @@ export const UserIdentitySchema = z.object({
 	platform: z.string(),
 	identity: z.string(),
 	isPrimary: z.boolean(),
+	metadata: z.object({
+		username: z.string().optional(),
+		displayName: z.string().optional(),
+		avatarUrl: z.string().optional(),
+		email: z.string().optional(),
+		bio: z.string().optional(),
+		profileUrl: z.string().optional(),
+		oauthAccessToken: z.string().optional(),
+	}).nullable().optional(),
+	verifiedAt: z.string().datetime().nullable().optional(),
 	createdAt: z.string().nullable().optional(),
 	updatedAt: z.string().nullable().optional(),
 });
