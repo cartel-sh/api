@@ -436,6 +436,9 @@ class UsersNamespace {
 		} | null;
 		verifiedAt?: string;
 		isPrimary?: boolean;
+		oauthAccessToken?: string;
+		oauthRefreshToken?: string;
+		oauthTokenExpiresAt?: string;
 	}): Promise<{
 		message: string;
 		identity: UserIdentity;

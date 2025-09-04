@@ -110,14 +110,17 @@ app.openapi(listIdentitiesRoute, async (c) => {
 				platform: identity.platform as "discord" | "evm" | "lens" | "farcaster" | "telegram" | "github",
 				identity: identity.identity,
 				isPrimary: identity.isPrimary,
-				metadata: identity.metadata as {
-					username?: string;
-					displayName?: string;
-					avatarUrl?: string;
-					email?: string;
-					bio?: string;
-					profileUrl?: string;
-				} | null,
+				metadata: {
+					...identity.metadata as {
+						username?: string;
+						displayName?: string;
+						avatarUrl?: string;
+						email?: string;
+						bio?: string;
+						profileUrl?: string;
+					} | null,
+					oauthAccessToken: identity.oauthAccessToken
+				},
 				verifiedAt: identity.verifiedAt?.toISOString() || null,
 				createdAt: identity.createdAt?.toISOString() || null,
 				updatedAt: identity.updatedAt?.toISOString() || null,
@@ -145,6 +148,9 @@ const connectIdentityRoute = createRoute({
 						metadata: IdentityMetadataSchema.optional(),
 						verifiedAt: z.string().datetime().optional(),
 						isPrimary: z.boolean().optional().default(false),
+						oauthAccessToken: z.string().optional(),
+						oauthRefreshToken: z.string().optional(),
+						oauthTokenExpiresAt: z.string().datetime().optional(),
 					}),
 				},
 			},
@@ -201,7 +207,7 @@ const connectIdentityRoute = createRoute({
 app.openapi(connectIdentityRoute, async (c) => {
 	const logger = c.get("logger");
 	const userId = c.get("userId");
-	const { platform, identity, metadata, verifiedAt, isPrimary } = c.req.valid("json");
+	const { platform, identity, metadata, verifiedAt, isPrimary, oauthAccessToken, oauthRefreshToken, oauthTokenExpiresAt } = c.req.valid("json");
 
 	if (!userId) {
 		logger.warn("Connect identity failed: no user ID in context");
@@ -266,6 +272,9 @@ app.openapi(connectIdentityRoute, async (c) => {
 					metadata: metadata || existingIdentity.metadata,
 					verifiedAt: verifiedAt ? new Date(verifiedAt) : existingIdentity.verifiedAt,
 					isPrimary: false, // Reset primary when reassigning
+					oauthAccessToken: oauthAccessToken || existingIdentity.oauthAccessToken,
+					oauthRefreshToken: oauthRefreshToken || existingIdentity.oauthRefreshToken,
+					oauthTokenExpiresAt: oauthTokenExpiresAt ? new Date(oauthTokenExpiresAt) : existingIdentity.oauthTokenExpiresAt,
 					updatedAt: new Date(),
 				})
 				.where(
@@ -354,6 +363,9 @@ app.openapi(connectIdentityRoute, async (c) => {
 					metadata,
 					verifiedAt: verifiedAt ? new Date(verifiedAt) : null,
 					isPrimary,
+					oauthAccessToken,
+					oauthRefreshToken,
+					oauthTokenExpiresAt: oauthTokenExpiresAt ? new Date(oauthTokenExpiresAt) : null,
 				});
 		}
 
