@@ -1,6 +1,6 @@
 {
   "name": "@cartel-sh/api",
-  "version": "7.10.3",
+  "version": "7.10.4",
   "description": "Shared REST API and SDK for Cartel",
   "main": "./dist/client/index.js",
   "module": "./dist/client/index.mjs",
