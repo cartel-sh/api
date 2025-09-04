@@ -620,7 +620,10 @@ export class CartelClient {
 			...options.headers,
 		};
 
-		// Prefer bearer token over API key for user authentication
+		if (this.apiKey) {
+			headers["X-API-Key"] = this.apiKey;
+		}
+
 		if (!options.skipAuth) {
 			const accessToken = this.tokenStorage.getAccessToken();
 
@@ -649,9 +652,6 @@ export class CartelClient {
 					}
 				}
 
-				if (this.apiKey) {
-					headers["X-API-Key"] = this.apiKey;
-				}
 			}
 		}
 
