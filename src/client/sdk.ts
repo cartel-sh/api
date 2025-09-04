@@ -643,14 +643,13 @@ export class CartelClient {
 
 					await this.refreshPromise;
 
-					// Get the new access token
 					const newAccessToken = this.tokenStorage.getAccessToken();
 					if (newAccessToken) {
 						headers["Authorization"] = `Bearer ${newAccessToken}`;
 					}
 				}
-				
-				if (!headers["Authorization"] && this.apiKey) {
+
+				if (this.apiKey) {
 					headers["X-API-Key"] = this.apiKey;
 				}
 			}
