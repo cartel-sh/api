@@ -34,7 +34,7 @@ export function hashToken(token: string): string {
 export function generateAccessToken(
 	userId: string,
 	userRole: UserRole,
-	clientId?: string,
+	clientName?: string,
 ): string {
 	if (!JWT_SECRET) {
 		throw new Error("JWT_SECRET is not configured");
@@ -43,7 +43,7 @@ export function generateAccessToken(
 		{
 			sub: userId,
 			role: userRole,
-			clientId,
+			clientName,
 			type: "access",
 			iat: Math.floor(Date.now() / 1000),
 		},
@@ -65,7 +65,7 @@ export function generateRefreshToken(): string {
 export function verifyAccessToken(token: string): {
 	userId: string;
 	userRole: UserRole;
-	clientId?: string;
+	clientName?: string;
 } | null {
 	if (!JWT_SECRET) {
 		return null;
@@ -78,7 +78,7 @@ export function verifyAccessToken(token: string): {
 		return {
 			userId: payload.sub,
 			userRole: payload.role || 'authenticated',
-			clientId: payload.clientId,
+			clientName: payload.clientName,
 		};
 	} catch {
 		return null;
@@ -90,7 +90,7 @@ export function verifyAccessToken(token: string): {
  */
 export async function createAccessToken(
 	userId: string,
-	clientId?: string,
+	clientName?: string,
 ): Promise<{ token: string; expiresIn: number }> {
 	// Fetch user to get role
 	const user = await db.query.users.findFirst({
@@ -101,7 +101,7 @@ export async function createAccessToken(
 		throw new Error("User not found");
 	}
 
-	const token = generateAccessToken(userId, user.role, clientId);
+	const token = generateAccessToken(userId, user.role, clientName);
 
 	return {
 		token,
@@ -115,7 +115,7 @@ export async function createAccessToken(
 export async function createRefreshToken(
 	userId: string,
 	familyId: string,
-	clientId?: string,
+	clientName?: string,
 ): Promise<{ token: string; expiresIn: number }> {
 	const token = generateRefreshToken();
 	const tokenHash = hashToken(token);
@@ -125,7 +125,7 @@ export async function createRefreshToken(
 		userId,
 		tokenHash,
 		familyId,
-		clientId,
+		clientName,
 		expiresAt,
 	});
 
@@ -179,7 +179,7 @@ export async function validateRefreshToken(
  */
 export async function rotateRefreshToken(
 	oldToken: string,
-	clientId?: string,
+	clientName?: string,
 ): Promise<{
 	accessToken: string;
 	refreshToken: string;
@@ -203,13 +203,13 @@ export async function rotateRefreshToken(
 	// Create new tokens
 	const newAccess = await createAccessToken(
 		refreshToken.userId,
-		clientId || refreshToken.clientId || undefined,
+		clientName || refreshToken.clientName || undefined,
 	);
 
 	const newRefresh = await createRefreshToken(
 		refreshToken.userId,
 		refreshToken.familyId, // Keep same family ID for rotation tracking
-		clientId || refreshToken.clientId || undefined,
+		clientName || refreshToken.clientName || undefined,
 	);
 
 	return {

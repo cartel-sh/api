@@ -1,6 +1,6 @@
 import type { Context, Next } from "hono";
 import { eq, and, or, isNull, gte } from "drizzle-orm";
-import { db, apiKeys, users } from "../../client";
+import { db, apiKeys } from "../../client";
 import {
 	hashApiKey,
 	getApiKeyPrefix,
@@ -55,9 +55,6 @@ async function getApiKey(rawKey: string): Promise<ApiKey | null> {
 				eq(apiKeys.isActive, true),
 				or(isNull(apiKeys.expiresAt), gte(apiKeys.expiresAt, now)),
 			),
-			with: {
-				user: true,
-			},
 		});
 
 		if (result) {
@@ -116,7 +113,7 @@ export async function bearerAuth(c: Context, next: Next) {
 	// context variables for use in routes
 	c.set("userId", payload.userId);
 	c.set("userRole", payload.userRole);
-	c.set("clientId", payload.clientId);
+	c.set("clientName", payload.clientName);
 	c.set("authType", "bearer");
 
 	await next();
@@ -136,7 +133,7 @@ export async function optionalBearerAuth(c: Context, next: Next) {
 		if (payload) {
 			c.set("userId", payload.userId);
 			c.set("userRole", payload.userRole);
-			c.set("clientId", payload.clientId);
+			c.set("clientName", payload.clientName);
 			c.set("authType", "bearer");
 		}
 	}
@@ -183,15 +180,8 @@ export async function apiKeyAuth(c: Context, next: Next) {
 		return c.json({ error: "Invalid API key" }, 401);
 	}
 
-	// Fetch user to get role
-	const user = await db.query.users.findFirst({
-		where: eq(users.id, keyData.userId),
-	});
-
 	// Set context variables for use in routes
 	c.set("apiKeyId", keyData.id);
-	c.set("userId", keyData.userId);
-	c.set("userRole", user?.role || 'authenticated');
 	c.set("clientName", keyData.clientName);
 	c.set("apiKeyType", "database");
 	c.set("authType", "apikey");
@@ -243,15 +233,8 @@ export async function optionalApiKey(c: Context, next: Next) {
 		return;
 	}
 
-	// Fetch user to get role
-	const user = await db.query.users.findFirst({
-		where: eq(users.id, keyData.userId),
-	});
-
 	// Set context variables for use in routes (for rate limiting and client identification)
 	c.set("apiKeyId", keyData.id);
-	c.set("apiKeyUserId", keyData.userId);
-	c.set("userRole", user?.role || 'authenticated');
 	c.set("apiKeyType", "database");
 	c.set("clientName", keyData.clientName);
 	c.set("allowedOrigins", keyData.allowedOrigins);
@@ -276,7 +259,7 @@ export async function combinedAuth(c: Context, next: Next) {
 		if (payload) {
 			c.set("userId", payload.userId);
 			c.set("userRole", payload.userRole);
-			c.set("clientId", payload.clientId);
+			c.set("clientName", payload.clientName);
 			c.set("authType", "bearer");
 			await next();
 			return;
@@ -302,14 +285,8 @@ export async function combinedAuth(c: Context, next: Next) {
 			const keyData = await getApiKey(apiKey);
 
 			if (keyData) {
-				// Fetch user to get role
-				const user = await db.query.users.findFirst({
-					where: eq(users.id, keyData.userId),
-				});
-
 				c.set("apiKeyId", keyData.id);
-				c.set("userId", keyData.userId);
-				c.set("userRole", user?.role || 'authenticated');
+				c.set("clientName", keyData.clientName);
 				c.set("apiKeyType", "database");
 				c.set("authType", "apikey");
 				await next();

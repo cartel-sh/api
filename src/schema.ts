@@ -84,7 +84,6 @@ export const users = pgTable("users", {
 export const usersRelations = relations(users, ({ many }) => ({
 	identities: many(userIdentities),
 	practiceSessions: many(practiceSessions),
-	apiKeys: many(apiKeys),
 	projects: many(projects),
 	refreshTokens: many(refreshTokens),
 }));
@@ -368,9 +367,6 @@ export const apiKeys = pgTable(
 	"api_keys",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
-		userId: uuid("user_id")
-			.notNull()
-			.references(() => users.id, { onDelete: "cascade" }),
 		name: text("name").notNull(),
 		keyPrefix: text("key_prefix").notNull().unique(), // First 8 chars for identification
 		keyHash: text("key_hash").notNull().unique(), // SHA-256 hash of full key
@@ -384,20 +380,12 @@ export const apiKeys = pgTable(
 		updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 	},
 	(table) => [
-		index("api_keys_user_id_idx").on(table.userId),
 		index("api_keys_prefix_idx")
 			.on(table.keyPrefix)
 			.where(sql`${table.isActive} = true`),
 		index("api_keys_expires_idx")
 			.on(table.expiresAt)
 			.where(sql`${table.isActive} = true`),
-		pgPolicy("api_keys_own", {
-			as: "permissive",
-			to: authenticatedRole,
-			for: "all",
-			using: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
-			withCheck: sql`user_id = current_setting('app.current_user_id', true)::uuid`,
-		}),
 		pgPolicy("api_keys_admin", {
 			as: "permissive",
 			to: adminRole,
@@ -408,12 +396,7 @@ export const apiKeys = pgTable(
 	],
 ).enableRLS();
 
-export const apiKeysRelations = relations(apiKeys, ({ one }) => ({
-	user: one(users, {
-		fields: [apiKeys.userId],
-		references: [users.id],
-	}),
-}));
+export const apiKeysRelations = relations(apiKeys, ({ one }) => ({}));
 
 export interface ApiKey extends InferSelectModel<typeof apiKeys> {}
 export interface NewApiKey extends InferInsertModel<typeof apiKeys> {}
@@ -427,7 +410,7 @@ export const refreshTokens = pgTable(
 			.references(() => users.id, { onDelete: "cascade" }),
 		tokenHash: text("token_hash").notNull().unique(),
 		familyId: uuid("family_id").notNull(), // For refresh token rotation detection
-		clientId: text("client_id"), // API key ID that created this token
+		clientName: text("client_name"), // Name of the client application that created this token
 		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 		usedAt: timestamp("used_at", { withTimezone: true }),
 		revokedAt: timestamp("revoked_at", { withTimezone: true }),

@@ -150,7 +150,6 @@ app.openapi(verifyRoute, async (c) => {
 			keyPrefix,
 		});
 
-		const clientId = apiKeyData.id;
 		const clientName = apiKeyData.clientName || undefined;
 		const allowedOrigins = apiKeyData.allowedOrigins || [];
 
@@ -267,9 +266,9 @@ app.openapi(verifyRoute, async (c) => {
 		}
 
 		logger.debug("Creating access and refresh tokens", { userId });
-		const accessToken = await createAccessToken(userId, clientId);
-		const familyId = crypto.randomUUID(); // New family for new login (must be UUID)
-		const refreshToken = await createRefreshToken(userId, familyId, clientId);
+		const accessToken = await createAccessToken(userId, clientName);
+		const familyId = crypto.randomUUID(); 
+		const refreshToken = await createRefreshToken(userId, familyId, clientName);
 
 		logger.logAuth("login_success", userId, {
 			address,

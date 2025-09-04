@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { eq, desc } from "drizzle-orm";
-import { db, apiKeys, users } from "../../../client";
+import { db, apiKeys } from "../../../client";
 import {
 	generateApiKey,
 	hashApiKey,
@@ -29,7 +29,6 @@ const createApiKeyRoute = createRoute({
 			content: {
 				"application/json": {
 					schema: z.object({
-						userId: z.string().uuid(),
 						name: z.string().min(1).max(100),
 						description: z.string().optional(),
 						clientName: z.string().optional(),
@@ -50,7 +49,6 @@ const createApiKeyRoute = createRoute({
 				"application/json": {
 					schema: z.object({
 						id: z.string(),
-						userId: z.string(),
 						name: z.string(),
 						description: z.string().optional(),
 						clientName: z.string().optional(),
@@ -89,7 +87,6 @@ const createApiKeyRoute = createRoute({
 app.openapi(createApiKeyRoute, async (c) => {
 	const logger = c.get("logger");
 	const {
-		userId,
 		name,
 		description,
 		clientName,
@@ -98,7 +95,6 @@ app.openapi(createApiKeyRoute, async (c) => {
 	} = c.req.valid("json");
 
 	logger.info("Admin creating API key", {
-		userId,
 		name,
 		clientName,
 		hasDescription: !!description,
@@ -107,16 +103,6 @@ app.openapi(createApiKeyRoute, async (c) => {
 	});
 
 	try {
-		logger.logDatabase("query", "users", { userId });
-		const user = await db.query.users.findFirst({
-			where: eq(users.id, userId),
-		});
-
-		if (!user) {
-			logger.warn("API key creation failed: user not found", { userId });
-			return c.json({ error: "User not found" }, 404);
-		}
-
 		const apiKey = generateApiKey();
 		const keyPrefix = getApiKeyPrefix(apiKey);
 		const keyHash = hashApiKey(apiKey);
@@ -126,7 +112,6 @@ app.openapi(createApiKeyRoute, async (c) => {
 			: null;
 
 		logger.logDatabase("insert", "apiKeys", {
-			userId,
 			name,
 			clientName,
 			keyPrefix,
@@ -135,7 +120,6 @@ app.openapi(createApiKeyRoute, async (c) => {
 		const result = await db
 			.insert(apiKeys)
 			.values({
-				userId,
 				name,
 				description,
 				keyPrefix,
@@ -154,7 +138,6 @@ app.openapi(createApiKeyRoute, async (c) => {
 
 		logger.info("API key created successfully", {
 			keyId: newKey.id,
-			userId: newKey.userId,
 			name: newKey.name,
 			keyPrefix,
 			clientName: newKey.clientName,
@@ -162,7 +145,6 @@ app.openapi(createApiKeyRoute, async (c) => {
 
 		return c.json({
 			id: newKey.id,
-			userId: newKey.userId,
 			name: newKey.name,
 			description: newKey.description || undefined,
 			expiresAt: newKey.expiresAt?.toISOString() || null,
@@ -179,12 +161,7 @@ const listApiKeysRoute = createRoute({
 	method: "get",
 	path: "/",
 	summary: "List API Keys",
-	description: "Lists all API keys, optionally filtered by user ID (requires authentication).",
-	request: {
-		query: z.object({
-			userId: z.string().optional(),
-		}),
-	},
+	description: "Lists all API keys (requires authentication).",
 	responses: {
 		200: {
 			description: "List of API keys",
@@ -210,51 +187,19 @@ const listApiKeysRoute = createRoute({
 
 app.openapi(listApiKeysRoute, async (c) => {
 	const logger = c.get("logger");
-	const { userId } = c.req.valid("query");
 
-	logger.info("Admin listing API keys", { 
-		filterByUserId: !!userId,
-		userId: userId || "all_users"
-	});
+	logger.info("Admin listing API keys");
 
 	try {
-		let keys: any[];
-
-		if (userId) {
-			logger.logDatabase("query", "apiKeys", { 
-				action: "list_by_user",
-				userId 
-			});
-			keys = await db.query.apiKeys.findMany({
-				where: eq(apiKeys.userId, userId),
-				orderBy: [desc(apiKeys.createdAt)],
-				with: {
-					user: {
-						with: {
-							identities: true,
-						},
-					},
-				},
-			});
-		} else {
-			logger.logDatabase("query", "apiKeys", { 
-				action: "list_all"
-			});
-			keys = await db.query.apiKeys.findMany({
-				orderBy: [desc(apiKeys.createdAt)],
-				with: {
-					user: {
-						with: {
-							identities: true,
-						},
-					},
-				},
-			});
-		}
+		logger.logDatabase("query", "apiKeys", { 
+			action: "list_all"
+		});
+		const keys = await db.query.apiKeys.findMany({
+			orderBy: [desc(apiKeys.createdAt)],
+		});
 
 		const sanitizedKeys = keys.map((key) => ({
 			id: key.id,
-			userId: key.userId,
 			name: key.name,
 			description: key.description,
 			keyPrefix: `cartel_${key.keyPrefix}...`,
@@ -264,18 +209,11 @@ app.openapi(listApiKeysRoute, async (c) => {
 			expiresAt: key.expiresAt,
 			isActive: key.isActive,
 			createdAt: key.createdAt,
-			user: key.user
-				? {
-						id: key.user.id,
-						identities: key.user.identities,
-					}
-				: undefined,
 		}));
 
 		logger.info("API keys listed successfully", {
 			resultCount: sanitizedKeys.length,
 			activeKeys: sanitizedKeys.filter(k => k.isActive).length,
-			filterByUserId: !!userId,
 		});
 
 		return c.json(sanitizedKeys, 200);
@@ -302,7 +240,6 @@ const getApiKeyRoute = createRoute({
 				"application/json": {
 					schema: z.object({
 						id: z.string(),
-						userId: z.string(),
 						name: z.string(),
 						description: z.string().optional(),
 						keyPrefix: z.string(),
@@ -313,10 +250,6 @@ const getApiKeyRoute = createRoute({
 						isActive: z.boolean(),
 						createdAt: z.string().datetime().nullable(),
 						updatedAt: z.string().datetime().nullable(),
-						user: z.object({
-							id: z.string(),
-							identities: z.array(z.any()),
-						}),
 					}),
 				},
 			},
@@ -355,13 +288,6 @@ app.openapi(getApiKeyRoute, async (c) => {
 		logger.logDatabase("query", "apiKeys", { keyId });
 		const key = await db.query.apiKeys.findFirst({
 			where: eq(apiKeys.id, keyId),
-			with: {
-				user: {
-					with: {
-						identities: true,
-					},
-				},
-			},
 		});
 
 		if (!key) {
@@ -371,7 +297,6 @@ app.openapi(getApiKeyRoute, async (c) => {
 
 		logger.info("API key details retrieved successfully", {
 			keyId,
-			userId: key.userId,
 			name: key.name,
 			isActive: key.isActive,
 			hasExpiration: !!key.expiresAt,
@@ -379,7 +304,6 @@ app.openapi(getApiKeyRoute, async (c) => {
 
 		return c.json({
 			id: key.id,
-			userId: key.userId,
 			name: key.name,
 			description: key.description || undefined,
 			keyPrefix: `cartel_${key.keyPrefix}...`,
@@ -390,10 +314,6 @@ app.openapi(getApiKeyRoute, async (c) => {
 			isActive: key.isActive,
 			createdAt: key.createdAt?.toISOString() || null,
 			updatedAt: key.updatedAt?.toISOString() || null,
-			user: {
-				id: key.user.id,
-				identities: key.user.identities,
-			},
 		}, 200);
 	} catch (error) {
 		logger.error("Admin API key retrieval failed", error);
@@ -595,7 +515,6 @@ app.openapi(deleteApiKeyRoute, async (c) => {
 		logger.info("API key deactivated successfully", {
 			keyId,
 			name: deactivated.name,
-			userId: deactivated.userId,
 		});
 
 		return c.json({
@@ -703,7 +622,6 @@ app.openapi(rotateApiKeyRoute, async (c) => {
 				.where(eq(apiKeys.id, keyId));
 
 			await tx.insert(apiKeys).values({
-				userId: existingKey.userId,
 				name: `${existingKey.name} (rotated)`,
 				description: `Rotated from ${existingKey.keyPrefix}`,
 				keyPrefix: newKeyPrefix,
@@ -719,7 +637,6 @@ app.openapi(rotateApiKeyRoute, async (c) => {
 			oldKeyPrefix: existingKey.keyPrefix,
 			newKeyPrefix,
 			gracePeriod,
-			userId: existingKey.userId,
 		});
 
 		return c.json({
