@@ -538,11 +538,12 @@ export const projects = pgTable(
 	],
 ).enableRLS();
 
-export const projectsRelations = relations(projects, ({ one }) => ({
+export const projectsRelations = relations(projects, ({ one, many }) => ({
 	user: one(users, {
 		fields: [projects.userId],
 		references: [users.id],
 	}),
+	projectTreasuries: many(projectTreasuries),
 }));
 
 export interface Project extends InferSelectModel<typeof projects> {
@@ -622,3 +623,187 @@ export interface LogEntry extends InferSelectModel<typeof logs> {
 	tags: string[];
 }
 export interface NewLogEntry extends InferInsertModel<typeof logs> {}
+
+export const treasuries = pgTable(
+	"treasuries",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		address: text("address").notNull().unique(), // Ethereum address (Safe/Multisig)
+		name: text("name").notNull(),
+		purpose: text("purpose"), // Description of what this treasury is for
+		chain: text("chain").default("mainnet").notNull(), // ethereum, polygon, arbitrum, etc.
+		type: text("type").default("safe").notNull(), // safe, gnosis-safe, multisig, eoa
+		threshold: integer("threshold"), // Number of signers required (for Safe)
+		owners: text("owners").array().default(sql`ARRAY[]::text[]`), // List of owner addresses
+		metadata: json("metadata").$type<{
+			version?: string; // Safe version
+			modules?: string[]; // Enabled modules
+			guard?: string; // Guard address
+			fallbackHandler?: string;
+			nonce?: number;
+		}>(),
+		isActive: boolean("is_active").default(true).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+	},
+	(table) => [
+		index("treasuries_address_idx").on(table.address),
+		index("treasuries_active_idx")
+			.on(table.isActive)
+			.where(sql`${table.isActive} = true`),
+		// Public can view active treasuries
+		pgPolicy("treasuries_select_public", {
+			as: "permissive",
+			to: publicRole,
+			for: "select",
+			using: sql`is_active = true`,
+		}),
+		// Authenticated users can view all treasuries
+		pgPolicy("treasuries_select_authenticated", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "select",
+			using: sql`true`,
+		}),
+		// Only admins can create treasuries
+		pgPolicy("treasuries_insert_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "insert",
+			withCheck: sql`true`,
+		}),
+		// Only admins can update treasuries
+		pgPolicy("treasuries_update_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "update",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
+		// Only admins can delete treasuries
+		pgPolicy("treasuries_delete_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "delete",
+			using: sql`true`,
+		}),
+	],
+).enableRLS();
+
+export const projectTreasuries = pgTable(
+	"project_treasuries",
+	{
+		projectId: uuid("project_id")
+			.notNull()
+			.references(() => projects.id, { onDelete: "cascade" }),
+		treasuryId: uuid("treasury_id")
+			.notNull()
+			.references(() => treasuries.id, { onDelete: "cascade" }),
+		addedBy: uuid("added_by")
+			.notNull()
+			.references(() => users.id),
+		role: text("role").default("primary").notNull(), // primary, secondary, funding, etc.
+		description: text("description"), // Project-specific description for this treasury
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+	},
+	(table) => [
+		primaryKey({ columns: [table.projectId, table.treasuryId] }),
+		index("project_treasuries_project_idx").on(table.projectId),
+		index("project_treasuries_treasury_idx").on(table.treasuryId),
+		// Project owners can view their project treasuries
+		pgPolicy("project_treasuries_select_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "select",
+			using: sql`EXISTS (
+				SELECT 1 FROM ${projects}
+				WHERE ${projects}.id = project_id
+				AND ${projects}.user_id = current_setting('app.current_user_id', true)::uuid
+			)`,
+		}),
+		// Public can view treasuries of public projects
+		pgPolicy("project_treasuries_select_public", {
+			as: "permissive",
+			to: publicRole,
+			for: "select",
+			using: sql`EXISTS (
+				SELECT 1 FROM ${projects}
+				WHERE ${projects}.id = project_id
+				AND ${projects}.is_public = true
+			)`,
+		}),
+		// Project owners can add treasuries to their projects
+		pgPolicy("project_treasuries_insert_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "insert",
+			withCheck: sql`EXISTS (
+				SELECT 1 FROM ${projects}
+				WHERE ${projects}.id = project_id
+				AND ${projects}.user_id = current_setting('app.current_user_id', true)::uuid
+			) AND added_by = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		// Project owners can update their project treasuries
+		pgPolicy("project_treasuries_update_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "update",
+			using: sql`EXISTS (
+				SELECT 1 FROM ${projects}
+				WHERE ${projects}.id = project_id
+				AND ${projects}.user_id = current_setting('app.current_user_id', true)::uuid
+			)`,
+			withCheck: sql`EXISTS (
+				SELECT 1 FROM ${projects}
+				WHERE ${projects}.id = project_id
+				AND ${projects}.user_id = current_setting('app.current_user_id', true)::uuid
+			)`,
+		}),
+		// Project owners can remove treasuries from their projects
+		pgPolicy("project_treasuries_delete_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "delete",
+			using: sql`EXISTS (
+				SELECT 1 FROM ${projects}
+				WHERE ${projects}.id = project_id
+				AND ${projects}.user_id = current_setting('app.current_user_id', true)::uuid
+			)`,
+		}),
+		// Admins can manage all project treasuries
+		pgPolicy("project_treasuries_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "all",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
+	],
+).enableRLS();
+
+export const treasuriesRelations = relations(treasuries, ({ many }) => ({
+	projectTreasuries: many(projectTreasuries),
+}));
+
+export const projectTreasuriesRelations = relations(projectTreasuries, ({ one }) => ({
+	project: one(projects, {
+		fields: [projectTreasuries.projectId],
+		references: [projects.id],
+	}),
+	treasury: one(treasuries, {
+		fields: [projectTreasuries.treasuryId],
+		references: [treasuries.id],
+	}),
+	addedByUser: one(users, {
+		fields: [projectTreasuries.addedBy],
+		references: [users.id],
+	}),
+}));
+
+export interface Treasury extends InferSelectModel<typeof treasuries> {
+	owners: string[];
+}
+export interface NewTreasury extends InferInsertModel<typeof treasuries> {}
+
+export interface ProjectTreasury extends InferSelectModel<typeof projectTreasuries> {}
+export interface NewProjectTreasury extends InferInsertModel<typeof projectTreasuries> {}

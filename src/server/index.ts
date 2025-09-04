@@ -17,6 +17,7 @@ import adminKeys from "./routes/admin/keys";
 import adminIdentities from "./routes/admin/identities";
 import logs from "./routes/logs";
 import projects from "./routes/projects";
+import treasuries from "./routes/treasuries";
 import auth from "./routes/auth";
 import { createMarkdownFromOpenApi } from "@scalar/openapi-to-markdown";
 
@@ -64,6 +65,7 @@ app.use("/api/sessions/*", combinedAuth);
 app.use("/api/users/*", combinedAuth);
 app.use("/api/admin/*", combinedAuth);
 app.use("/api/projects/*", combinedAuth);
+app.use("/api/treasuries/*", combinedAuth);
 
 app.route("/api/vanish/discord", vanishDiscord);
 app.route("/api/sessions/practice", practice);
@@ -76,6 +78,7 @@ app.route("/api/admin/keys", adminKeys);
 app.route("/api/admin/identities", adminIdentities);
 app.route("/api/admin/logs", logs);
 app.route("/api/projects", projects);
+app.route("/api/treasuries", treasuries);
 app.route("/api/auth", auth);
 
 app.get("/health", (c) =>
@@ -135,6 +138,7 @@ app.get("/", (c) =>
 			"/api/admin/identities",
 			"/api/admin/logs",
 			"/api/projects",
+			"/api/treasuries",
 			"/api/auth",
 		],
 	}),

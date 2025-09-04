@@ -22,6 +22,10 @@ import type {
 	LogsListResponse,
 	LogStatsResponse,
 	LogCleanupResponse,
+	Treasury,
+	NewTreasury,
+	ProjectTreasury,
+	NewProjectTreasury,
 } from "../shared/schemas";
 
 export type {
@@ -36,6 +40,10 @@ export type {
 	LogsListResponse,
 	LogStatsResponse,
 	LogCleanupResponse,
+	Treasury,
+	NewTreasury,
+	ProjectTreasury,
+	NewProjectTreasury,
 } from "../shared/schemas";
 
 export interface TokenStorage {
@@ -539,6 +547,102 @@ class ProjectsNamespace {
 	}
 }
 
+class TreasuriesNamespace {
+	constructor(private client: CartelClient) { }
+	
+	async list(params?: {
+		chain?: string;
+		type?: string;
+		limit?: number;
+		offset?: number;
+	}): Promise<Treasury[]> {
+		const searchParams = new URLSearchParams();
+		if (params?.chain) searchParams.set("chain", params.chain);
+		if (params?.type) searchParams.set("type", params.type);
+		if (params?.limit) searchParams.set("limit", params.limit.toString());
+		if (params?.offset) searchParams.set("offset", params.offset.toString());
+		const queryString = searchParams.toString();
+		const endpoint = queryString ? `/api/treasuries?${queryString}` : "/api/treasuries";
+		return this.client.request<Treasury[]>(endpoint);
+	}
+	
+	async get(treasuryId: string): Promise<Treasury & { projects?: any[] }> {
+		return this.client.request<Treasury & { projects?: any[] }>(`/api/treasuries/${treasuryId}`);
+	}
+	
+	async create(params: {
+		address: string;
+		name: string;
+		purpose?: string;
+		chain?: string;
+		type?: string;
+		threshold?: number;
+		owners?: string[];
+		metadata?: any;
+	}): Promise<Treasury> {
+		return this.client.request<Treasury>("/api/treasuries", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
+	}
+	
+	async update(
+		treasuryId: string,
+		params: Partial<{
+			address: string;
+			name: string;
+			purpose: string;
+			chain: string;
+			type: string;
+			threshold: number;
+			owners: string[];
+			metadata: any;
+		}>
+	): Promise<Treasury> {
+		return this.client.request<Treasury>(`/api/treasuries/${treasuryId}`, {
+			method: "PATCH",
+			body: JSON.stringify(params),
+		});
+	}
+	
+	async listProjectTreasuries(projectId: string): Promise<(ProjectTreasury & { treasury?: Treasury })[]> {
+		return this.client.request<(ProjectTreasury & { treasury?: Treasury })[]>(
+			`/api/treasuries/projects/${projectId}`
+		);
+	}
+	
+	async addProjectTreasury(
+		projectId: string,
+		params: {
+			treasuryId?: string;
+			address?: string;
+			name?: string;
+			purpose?: string;
+			chain?: string;
+			type?: string;
+			role?: string;
+			description?: string;
+		}
+	): Promise<ProjectTreasury & { treasury?: Treasury }> {
+		return this.client.request<ProjectTreasury & { treasury?: Treasury }>(
+			`/api/treasuries/projects/${projectId}`,
+			{
+				method: "POST",
+				body: JSON.stringify(params),
+			}
+		);
+	}
+	
+	async removeProjectTreasury(projectId: string, treasuryId: string): Promise<void> {
+		await this.client.request<void>(
+			`/api/treasuries/projects/${projectId}/${treasuryId}`,
+			{
+				method: "DELETE",
+			}
+		);
+	}
+}
+
 class LogsNamespace {
 	constructor(private client: CartelClient) { }
 
@@ -592,6 +696,7 @@ export class CartelClient {
 	applications: ApplicationsNamespace;
 	users: UsersNamespace;
 	projects: ProjectsNamespace;
+	treasuries: TreasuriesNamespace;
 	logs: LogsNamespace;
 
 	constructor(
@@ -611,6 +716,7 @@ export class CartelClient {
 		this.applications = new ApplicationsNamespace(this);
 		this.users = new UsersNamespace(this);
 		this.projects = new ProjectsNamespace(this);
+		this.treasuries = new TreasuriesNamespace(this);
 		this.logs = new LogsNamespace(this);
 	}
 

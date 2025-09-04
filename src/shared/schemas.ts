@@ -441,3 +441,6 @@ export type LogEntry = z.infer<typeof LogEntrySchema>;
 export type LogsListResponse = z.infer<typeof LogsListResponseSchema>;
 export type LogStatsResponse = z.infer<typeof LogStatsResponseSchema>;
 export type LogCleanupResponse = z.infer<typeof LogCleanupResponseSchema>;
+
+// Treasury types - import from schema for now
+export type { Treasury, NewTreasury, ProjectTreasury, NewProjectTreasury } from "../schema";

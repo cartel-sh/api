@@ -127,6 +127,13 @@
       "when": 1756962622391,
       "tag": "0017_familiar_sabra",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1756978553754,
+      "tag": "0018_glorious_exodus",
+      "breakpoints": true
     }
   ]
 }
