@@ -210,8 +210,8 @@ export const practiceSessions = pgTable(
 			.references(() => users.id),
 		startTime: timestamp("start_time", { withTimezone: true }).notNull(),
 		endTime: timestamp("end_time", { withTimezone: true }),
+		date: text("date").notNull(),
 		duration: integer("duration"), // duration in seconds
-		date: text("date").notNull(), // Using text to store YYYY-MM-DD format
 		notes: text("notes"),
 	},
 	(table) => [
