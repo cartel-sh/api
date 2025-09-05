@@ -490,7 +490,7 @@ export const ProjectTreasurySchema = z.object({
 	addedBy: z.string().uuid(),
 	role: z.string(),
 	description: z.string().nullable(),
-	createdAt: z.string().nullable(),
+	createdAt: z.date().nullable(),
 	treasury: TreasurySchema.optional(),
 });
 
