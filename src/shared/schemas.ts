@@ -442,5 +442,82 @@ export type LogsListResponse = z.infer<typeof LogsListResponseSchema>;
 export type LogStatsResponse = z.infer<typeof LogStatsResponseSchema>;
 export type LogCleanupResponse = z.infer<typeof LogCleanupResponseSchema>;
 
-// Treasury types - import from schema for now
-export type { Treasury, NewTreasury, ProjectTreasury, NewProjectTreasury } from "../schema";
+// ============================================
+// Treasury Schemas
+// ============================================
+
+export const TreasurySchema = z.object({
+	id: z.string().uuid(),
+	address: z.string(),
+	name: z.string(),
+	purpose: z.string().nullable(),
+	chain: z.string(),
+	type: z.string(),
+	threshold: z.number().nullable(),
+	owners: z.array(z.string()).nullable(),
+	metadata: z.object({
+		version: z.string().optional(),
+		modules: z.array(z.string()).optional(),
+		guard: z.string().optional(),
+		fallbackHandler: z.string().optional(),
+		nonce: z.number().optional(),
+	}).nullable(),
+	isActive: z.boolean(),
+	createdAt: z.string().nullable(),
+	updatedAt: z.string().nullable(),
+});
+
+export const CreateTreasurySchema = z.object({
+	address: z.string().describe("Ethereum address of the treasury"),
+	name: z.string().describe("Name of the treasury"),
+	purpose: z.string().optional().describe("Purpose or description of the treasury"),
+	chain: z.string().default("mainnet").describe("Blockchain network"),
+	type: z.string().default("safe").describe("Type of treasury (safe, multisig, eoa)"),
+	threshold: z.number().optional().describe("Required signatures for Safe"),
+	owners: z.array(z.string()).optional().describe("List of owner addresses"),
+	metadata: z.object({
+		version: z.string().optional(),
+		modules: z.array(z.string()).optional(),
+		guard: z.string().optional(),
+		fallbackHandler: z.string().optional(),
+		nonce: z.number().optional(),
+	}).optional(),
+});
+
+export const ProjectTreasurySchema = z.object({
+	projectId: z.string().uuid(),
+	treasuryId: z.string().uuid(),
+	addedBy: z.string().uuid(),
+	role: z.string(),
+	description: z.string().nullable(),
+	createdAt: z.string().nullable(),
+	treasury: TreasurySchema.optional(),
+});
+
+export const AddProjectTreasurySchema = z.object({
+	treasuryId: z.string().uuid().optional().describe("Existing treasury ID"),
+	address: z.string().optional().describe("Treasury address for new treasury"),
+	name: z.string().optional().describe("Name for new treasury"),
+	purpose: z.string().optional().describe("Purpose for new treasury"),
+	chain: z.string().default("mainnet").optional(),
+	type: z.string().default("safe").optional(),
+	role: z.string().default("primary").describe("Role of treasury in project"),
+	description: z.string().optional().describe("Project-specific description"),
+});
+
+export const TreasuryQuerySchema = z.object({
+	chain: z.string().optional().describe("Filter by blockchain network"),
+	type: z.string().optional().describe("Filter by treasury type"),
+	limit: z.coerce.number().optional().describe("Number of results to return"),
+	offset: z.coerce.number().optional().describe("Number of results to skip"),
+});
+
+// Type exports
+export type Treasury = z.infer<typeof TreasurySchema>;
+export type CreateTreasury = z.infer<typeof CreateTreasurySchema>;
+export type ProjectTreasury = z.infer<typeof ProjectTreasurySchema>;
+export type AddProjectTreasury = z.infer<typeof AddProjectTreasurySchema>;
+export type TreasuryQuery = z.infer<typeof TreasuryQuerySchema>;
+
+// Also export database types for compatibility
+export type { NewTreasury, NewProjectTreasury } from "../schema";

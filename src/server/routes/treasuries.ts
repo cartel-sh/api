@@ -2,7 +2,14 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { db } from "../../client";
 import { treasuries, projects, projectTreasuries, users } from "../../schema";
 import { eq, and, desc, sql } from "drizzle-orm";
-import type { Treasury, NewTreasury, ProjectTreasury, NewProjectTreasury } from "../../schema";
+import type { NewTreasury } from "../../schema";
+import {
+	TreasurySchema,
+	CreateTreasurySchema,
+	ProjectTreasurySchema,
+	AddProjectTreasurySchema,
+	TreasuryQuerySchema,
+} from "../../shared/schemas";
 
 // Define the context variables that our auth middleware provides
 type Variables = {
@@ -12,53 +19,6 @@ type Variables = {
 
 const app = new OpenAPIHono<{ Variables: Variables }>();
 
-const treasurySchema = z.object({
-	id: z.string().uuid(),
-	address: z.string(),
-	name: z.string(),
-	purpose: z.string().nullable(),
-	chain: z.string(),
-	type: z.string(),
-	threshold: z.number().nullable(),
-	owners: z.array(z.string()).nullable(),
-	metadata: z.object({
-		version: z.string().optional(),
-		modules: z.array(z.string()).optional(),
-		guard: z.string().optional(),
-		fallbackHandler: z.string().optional(),
-		nonce: z.number().optional(),
-	}).nullable(),
-	isActive: z.boolean(),
-	createdAt: z.string().nullable(),
-	updatedAt: z.string().nullable(),
-});
-
-const createTreasurySchema = z.object({
-	address: z.string().describe("Ethereum address of the treasury"),
-	name: z.string().describe("Name of the treasury"),
-	purpose: z.string().optional().describe("Purpose or description of the treasury"),
-	chain: z.string().default("mainnet").describe("Blockchain network"),
-	type: z.string().default("safe").describe("Type of treasury (safe, multisig, eoa)"),
-	threshold: z.number().optional().describe("Required signatures for Safe"),
-	owners: z.array(z.string()).optional().describe("List of owner addresses"),
-	metadata: z.object({
-		version: z.string().optional(),
-		modules: z.array(z.string()).optional(),
-		guard: z.string().optional(),
-		fallbackHandler: z.string().optional(),
-		nonce: z.number().optional(),
-	}).optional(),
-});
-
-const projectTreasurySchema = z.object({
-	projectId: z.string().uuid(),
-	treasuryId: z.string().uuid(),
-	addedBy: z.string().uuid(),
-	role: z.string(),
-	description: z.string().nullable(),
-	createdAt: z.string().nullable(),
-	treasury: treasurySchema.optional(),
-});
 
 // List all treasuries
 const listTreasuries = createRoute({
@@ -67,19 +27,14 @@ const listTreasuries = createRoute({
 	description: "List all active treasuries with optional filtering by chain or type",
 	summary: "List treasuries",
 	request: {
-		query: z.object({
-			chain: z.string().optional().describe("Filter by blockchain network"),
-			type: z.string().optional().describe("Filter by treasury type"),
-			limit: z.coerce.number().optional().describe("Number of results to return"),
-			offset: z.coerce.number().optional().describe("Number of results to skip"),
-		}),
+		query: TreasuryQuerySchema,
 	},
 	responses: {
 		200: {
 			description: "List of treasuries",
 			content: {
 				"application/json": {
-					schema: z.array(treasurySchema),
+					schema: z.array(TreasurySchema),
 				},
 			},
 		},
@@ -141,7 +96,7 @@ const getTreasury = createRoute({
 			description: "Treasury details",
 			content: {
 				"application/json": {
-					schema: treasurySchema.extend({
+					schema: TreasurySchema.extend({
 						projects: z.array(z.object({
 							id: z.string().uuid(),
 							title: z.string(),
@@ -224,7 +179,7 @@ const createTreasury = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: createTreasurySchema,
+					schema: CreateTreasurySchema,
 				},
 			},
 		},
@@ -234,7 +189,7 @@ const createTreasury = createRoute({
 			description: "Treasury created successfully",
 			content: {
 				"application/json": {
-					schema: treasurySchema,
+					schema: TreasurySchema,
 				},
 			},
 		},
@@ -314,7 +269,7 @@ const updateTreasury = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: createTreasurySchema.partial(),
+					schema: CreateTreasurySchema.partial(),
 				},
 			},
 		},
@@ -324,7 +279,7 @@ const updateTreasury = createRoute({
 			description: "Treasury updated successfully",
 			content: {
 				"application/json": {
-					schema: treasurySchema,
+					schema: TreasurySchema,
 				},
 			},
 		},
@@ -410,7 +365,7 @@ const listProjectTreasuries = createRoute({
 			description: "List of project treasuries",
 			content: {
 				"application/json": {
-					schema: z.array(projectTreasurySchema),
+					schema: z.array(ProjectTreasurySchema),
 				},
 			},
 		},
@@ -466,16 +421,7 @@ const addProjectTreasury = createRoute({
 		body: {
 			content: {
 				"application/json": {
-					schema: z.object({
-						treasuryId: z.string().uuid().optional().describe("Existing treasury ID"),
-						address: z.string().optional().describe("Treasury address for new treasury"),
-						name: z.string().optional().describe("Name for new treasury"),
-						purpose: z.string().optional().describe("Purpose for new treasury"),
-						chain: z.string().default("mainnet").optional(),
-						type: z.string().default("safe").optional(),
-						role: z.string().default("primary").describe("Role of treasury in project"),
-						description: z.string().optional().describe("Project-specific description"),
-					}),
+					schema: AddProjectTreasurySchema,
 				},
 			},
 		},
@@ -485,7 +431,7 @@ const addProjectTreasury = createRoute({
 			description: "Treasury added to project",
 			content: {
 				"application/json": {
-					schema: projectTreasurySchema,
+					schema: ProjectTreasurySchema,
 				},
 			},
 		},
@@ -587,8 +533,7 @@ app.openapi(addProjectTreasury, async (c) => {
 			return c.json({ error: "Treasury ID or address/name required" }, 400);
 		}
 		
-		// Add treasury to project
-		const [link] = await db
+		const linkResult = await db
 			.insert(projectTreasuries)
 			.values({
 				projectId,
@@ -599,15 +544,34 @@ app.openapi(addProjectTreasury, async (c) => {
 			})
 			.returning();
 		
-		// Get the treasury details
-		const [treasury] = await db
+		if (!linkResult || linkResult.length === 0) {
+			return c.json({ error: "Failed to link treasury to project" }, 500);
+		}
+		
+		const link = linkResult[0];
+		if (!link) {
+			return c.json({ error: "Failed to link treasury to project" }, 500);
+		}
+		
+		const treasuryResult = await db
 			.select()
 			.from(treasuries)
 			.where(eq(treasuries.id, treasuryId))
 			.limit(1);
 		
+		const treasury = treasuryResult[0];
+		
+		if (!treasury) {
+			return c.json({ error: "Treasury not found after linking" }, 500);
+		}
+		
 		return c.json({
-			...link,
+			projectId: link.projectId,
+			treasuryId: link.treasuryId,
+			addedBy: link.addedBy,
+			role: link.role,
+			description: link.description,
+			createdAt: link.createdAt?.toISOString() || null,
 			treasury,
 		}, 201);
 	} catch (error: any) {
@@ -619,7 +583,6 @@ app.openapi(addProjectTreasury, async (c) => {
 	}
 });
 
-// Remove treasury from project
 const removeProjectTreasury = createRoute({
 	method: "delete",
 	path: "/projects/{projectId}/{treasuryId}",
@@ -693,8 +656,7 @@ app.openapi(removeProjectTreasury, async (c) => {
 			return c.json({ error: "Project not found or unauthorized" }, 401);
 		}
 		
-		// Remove the link
-		const result = await db
+		await db
 			.delete(projectTreasuries)
 			.where(and(
 				eq(projectTreasuries.projectId, projectId),

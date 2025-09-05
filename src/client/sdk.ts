@@ -23,9 +23,10 @@ import type {
 	LogStatsResponse,
 	LogCleanupResponse,
 	Treasury,
-	NewTreasury,
+	CreateTreasury,
 	ProjectTreasury,
-	NewProjectTreasury,
+	AddProjectTreasury,
+	TreasuryQuery,
 } from "../shared/schemas";
 
 export type {
@@ -41,9 +42,10 @@ export type {
 	LogStatsResponse,
 	LogCleanupResponse,
 	Treasury,
-	NewTreasury,
+	CreateTreasury,
 	ProjectTreasury,
-	NewProjectTreasury,
+	AddProjectTreasury,
+	TreasuryQuery,
 } from "../shared/schemas";
 
 export interface TokenStorage {
@@ -550,12 +552,7 @@ class ProjectsNamespace {
 class TreasuriesNamespace {
 	constructor(private client: CartelClient) { }
 	
-	async list(params?: {
-		chain?: string;
-		type?: string;
-		limit?: number;
-		offset?: number;
-	}): Promise<Treasury[]> {
+	async list(params?: TreasuryQuery): Promise<Treasury[]> {
 		const searchParams = new URLSearchParams();
 		if (params?.chain) searchParams.set("chain", params.chain);
 		if (params?.type) searchParams.set("type", params.type);
@@ -570,16 +567,7 @@ class TreasuriesNamespace {
 		return this.client.request<Treasury & { projects?: any[] }>(`/api/treasuries/${treasuryId}`);
 	}
 	
-	async create(params: {
-		address: string;
-		name: string;
-		purpose?: string;
-		chain?: string;
-		type?: string;
-		threshold?: number;
-		owners?: string[];
-		metadata?: any;
-	}): Promise<Treasury> {
+	async create(params: CreateTreasury): Promise<Treasury> {
 		return this.client.request<Treasury>("/api/treasuries", {
 			method: "POST",
 			body: JSON.stringify(params),
@@ -588,16 +576,7 @@ class TreasuriesNamespace {
 	
 	async update(
 		treasuryId: string,
-		params: Partial<{
-			address: string;
-			name: string;
-			purpose: string;
-			chain: string;
-			type: string;
-			threshold: number;
-			owners: string[];
-			metadata: any;
-		}>
+		params: Partial<CreateTreasury>
 	): Promise<Treasury> {
 		return this.client.request<Treasury>(`/api/treasuries/${treasuryId}`, {
 			method: "PATCH",
@@ -613,16 +592,7 @@ class TreasuriesNamespace {
 	
 	async addProjectTreasury(
 		projectId: string,
-		params: {
-			treasuryId?: string;
-			address?: string;
-			name?: string;
-			purpose?: string;
-			chain?: string;
-			type?: string;
-			role?: string;
-			description?: string;
-		}
+		params: AddProjectTreasury
 	): Promise<ProjectTreasury & { treasury?: Treasury }> {
 		return this.client.request<ProjectTreasury & { treasury?: Treasury }>(
 			`/api/treasuries/projects/${projectId}`,
