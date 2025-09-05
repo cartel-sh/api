@@ -631,7 +631,7 @@ export const treasuries = pgTable(
 		address: text("address").notNull().unique(), // Ethereum address (Safe/Multisig)
 		name: text("name").notNull(),
 		purpose: text("purpose"), // Description of what this treasury is for
-		chain: text("chain").default("mainnet").notNull(), // ethereum, polygon, arbitrum, etc.
+		chainIds: integer("chain_ids").array().default(sql`ARRAY[1]::integer[]`), // All chain IDs where this Safe is deployed
 		type: text("type").default("safe").notNull(), // safe, gnosis-safe, multisig, eoa
 		threshold: integer("threshold"), // Number of signers required (for Safe)
 		owners: text("owners").array().default(sql`ARRAY[]::text[]`), // List of owner addresses
@@ -641,6 +641,13 @@ export const treasuries = pgTable(
 			guard?: string; // Guard address
 			fallbackHandler?: string;
 			nonce?: number;
+			chainData?: {
+				[chainId: number]: {
+					nonce?: number;
+					version?: string;
+					masterCopy?: string;
+				};
+			};
 		}>(),
 		isActive: boolean("is_active").default(true).notNull(),
 		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

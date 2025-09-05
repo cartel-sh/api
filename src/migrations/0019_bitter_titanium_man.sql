@@ -1,0 +1,1 @@
+ALTER TABLE "treasuries" RENAME COLUMN "chain" TO "chain_ids";
