@@ -74,7 +74,13 @@ app.openapi(listTreasuries, async (c) => {
 			.limit(limit)
 			.offset(offset);
 		
-		return c.json(results, 200);
+		// Transform results to ensure owners is always an array
+		const transformedResults = results.map(treasury => ({
+			...treasury,
+			owners: treasury.owners || []
+		}));
+		
+		return c.json(transformedResults, 200);
 	} catch (error) {
 		console.error("Error listing treasuries:", error);
 		return c.json({ error: "Failed to list treasuries" }, 500);
@@ -154,6 +160,7 @@ app.openapi(getTreasury, async (c) => {
 		
 		return c.json({
 			...treasury,
+			owners: treasury.owners || [],
 			projects: projectLinks,
 		}, 200);
 	} catch (error) {
@@ -335,7 +342,10 @@ app.openapi(updateTreasury, async (c) => {
 			return c.json({ error: "Treasury not found" }, 404);
 		}
 		
-		return c.json(updated, 200);
+		return c.json({
+			...updated,
+			owners: updated.owners || []
+		}, 200);
 	} catch (error) {
 		console.error("Error updating treasury:", error);
 		return c.json({ error: "Failed to update treasury" }, 500);
@@ -394,7 +404,16 @@ app.openapi(listProjectTreasuries, async (c) => {
 			.innerJoin(treasuries, eq(projectTreasuries.treasuryId, treasuries.id))
 			.where(eq(projectTreasuries.projectId, projectId));
 		
-		return c.json(results, 200);
+		// Transform the results to ensure owners is always an array
+		const transformedResults = results.map(result => ({
+			...result,
+			treasury: result.treasury ? {
+				...result.treasury,
+				owners: result.treasury.owners || []
+			} : result.treasury
+		}));
+		
+		return c.json(transformedResults, 200);
 	} catch (error) {
 		console.error("Error listing project treasuries:", error);
 		return c.json({ error: "Failed to list project treasuries" }, 500);
@@ -565,7 +584,10 @@ app.openapi(addProjectTreasury, async (c) => {
 			role: link.role,
 			description: link.description,
 			createdAt: link.createdAt?.toISOString() || null,
-			treasury,
+			treasury: {
+				...treasury,
+				owners: treasury.owners || []
+			},
 		}, 201);
 	} catch (error: any) {
 		console.error("Error adding treasury to project:", error);

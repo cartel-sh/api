@@ -454,7 +454,7 @@ export const TreasurySchema = z.object({
 	chain: z.string(),
 	type: z.string(),
 	threshold: z.number().nullable(),
-	owners: z.array(z.string()).nullable(),
+	owners: z.array(z.string()),
 	metadata: z.object({
 		version: z.string().optional(),
 		modules: z.array(z.string()).optional(),
@@ -463,8 +463,8 @@ export const TreasurySchema = z.object({
 		nonce: z.number().optional(),
 	}).nullable(),
 	isActive: z.boolean(),
-	createdAt: z.string().nullable(),
-	updatedAt: z.string().nullable(),
+	createdAt: z.date().nullable(),
+	updatedAt: z.date().nullable(),
 });
 
 export const CreateTreasurySchema = z.object({
