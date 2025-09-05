@@ -60,7 +60,10 @@ app.openapi(listTreasuries, async (c) => {
 		let whereClause = eq(treasuries.isActive, true);
 		
 		if (chain) {
-			whereClause = and(whereClause, eq(treasuries.chain, chain))!;
+			const chainId = parseInt(chain);
+			if (!isNaN(chainId)) {
+				whereClause = and(whereClause, sql`${chainId} = ANY(${treasuries.chainIds})`)!;
+			}
 		}
 		
 		if (type) {
@@ -74,10 +77,11 @@ app.openapi(listTreasuries, async (c) => {
 			.limit(limit)
 			.offset(offset);
 		
-		// Transform results to ensure owners is always an array
+		// Transform results to ensure owners and chainIds are always arrays
 		const transformedResults = results.map(treasury => ({
 			...treasury,
-			owners: treasury.owners || []
+			owners: treasury.owners || [],
+			chainIds: treasury.chainIds || [1]
 		}));
 		
 		return c.json(transformedResults, 200);
@@ -161,6 +165,7 @@ app.openapi(getTreasury, async (c) => {
 		return c.json({
 			...treasury,
 			owners: treasury.owners || [],
+			chainIds: treasury.chainIds || [1],
 			projects: projectLinks,
 		}, 200);
 	} catch (error) {
@@ -344,7 +349,8 @@ app.openapi(updateTreasury, async (c) => {
 		
 		return c.json({
 			...updated,
-			owners: updated.owners || []
+			owners: updated.owners || [],
+			chainIds: updated.chainIds || [1]
 		}, 200);
 	} catch (error) {
 		console.error("Error updating treasury:", error);
@@ -404,12 +410,12 @@ app.openapi(listProjectTreasuries, async (c) => {
 			.innerJoin(treasuries, eq(projectTreasuries.treasuryId, treasuries.id))
 			.where(eq(projectTreasuries.projectId, projectId));
 		
-		// Transform the results to ensure owners is always an array
 		const transformedResults = results.map(result => ({
 			...result,
 			treasury: result.treasury ? {
 				...result.treasury,
-				owners: result.treasury.owners || []
+				owners: result.treasury.owners || [],
+				chainIds: result.treasury.chainIds || [1]
 			} : result.treasury
 		}));
 		
@@ -524,7 +530,7 @@ app.openapi(addProjectTreasury, async (c) => {
 					address: data.address,
 					name: data.name,
 					purpose: data.purpose,
-					chain: data.chain || "mainnet",
+					chainIds: data.chainIds || [1], 
 					type: data.type || "safe",
 					owners: data.owners || [],
 				};
@@ -610,7 +616,8 @@ app.openapi(addProjectTreasury, async (c) => {
 			createdAt: link.createdAt?.toISOString() || null,
 			treasury: {
 				...treasury,
-				owners: treasury.owners || []
+				owners: treasury.owners || [],
+				chainIds: treasury.chainIds || [1]
 			},
 		}, 201);
 	} catch (error: any) {
