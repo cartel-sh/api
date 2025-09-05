@@ -512,12 +512,23 @@ export const TreasuryQuerySchema = z.object({
 	offset: z.coerce.number().optional().describe("Number of results to skip"),
 });
 
+export const TreasuryWithProjectsSchema = TreasurySchema.extend({
+	projects: z.array(z.object({
+		id: z.string().uuid(),
+		title: z.string(),
+		description: z.string(),
+		role: z.string(),
+		projectDescription: z.string().nullable(),
+	})).optional(),
+});
+
 // Type exports
 export type Treasury = z.infer<typeof TreasurySchema>;
 export type CreateTreasury = z.infer<typeof CreateTreasurySchema>;
 export type ProjectTreasury = z.infer<typeof ProjectTreasurySchema>;
 export type AddProjectTreasury = z.infer<typeof AddProjectTreasurySchema>;
 export type TreasuryQuery = z.infer<typeof TreasuryQuerySchema>;
+export type TreasuryWithProjects = z.infer<typeof TreasuryWithProjectsSchema>;
 
 // Also export database types for compatibility
 export type { NewTreasury, NewProjectTreasury } from "../schema";

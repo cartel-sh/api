@@ -9,6 +9,7 @@ import {
 	ProjectTreasurySchema,
 	AddProjectTreasurySchema,
 	TreasuryQuerySchema,
+	TreasuryWithProjectsSchema,
 } from "../../shared/schemas";
 
 // Define the context variables that our auth middleware provides
@@ -96,15 +97,7 @@ const getTreasury = createRoute({
 			description: "Treasury details",
 			content: {
 				"application/json": {
-					schema: TreasurySchema.extend({
-						projects: z.array(z.object({
-							id: z.string().uuid(),
-							title: z.string(),
-							description: z.string(),
-							role: z.string(),
-							projectDescription: z.string().nullable(),
-						})).optional(),
-					}),
+					schema: TreasuryWithProjectsSchema,
 				},
 			},
 		},

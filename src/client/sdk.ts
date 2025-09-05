@@ -27,6 +27,7 @@ import type {
 	ProjectTreasury,
 	AddProjectTreasury,
 	TreasuryQuery,
+	TreasuryWithProjects,
 } from "../shared/schemas";
 
 export type {
@@ -46,6 +47,7 @@ export type {
 	ProjectTreasury,
 	AddProjectTreasury,
 	TreasuryQuery,
+	TreasuryWithProjects,
 } from "../shared/schemas";
 
 export interface TokenStorage {
@@ -563,8 +565,8 @@ class TreasuriesNamespace {
 		return this.client.request<Treasury[]>(endpoint);
 	}
 	
-	async get(treasuryId: string): Promise<Treasury & { projects?: any[] }> {
-		return this.client.request<Treasury & { projects?: any[] }>(`/api/treasuries/${treasuryId}`);
+	async get(treasuryId: string): Promise<TreasuryWithProjects> {
+		return this.client.request<TreasuryWithProjects>(`/api/treasuries/${treasuryId}`);
 	}
 	
 	async create(params: CreateTreasury): Promise<Treasury> {
