@@ -501,6 +501,15 @@ export const AddProjectTreasurySchema = z.object({
 	purpose: z.string().optional().describe("Purpose for new treasury"),
 	chain: z.string().default("mainnet").optional(),
 	type: z.string().default("safe").optional(),
+	threshold: z.number().optional().describe("Required signatures for Safe"),
+	owners: z.array(z.string()).optional().describe("List of owner addresses"),
+	metadata: z.object({
+		version: z.string().optional(),
+		modules: z.array(z.string()).optional(),
+		guard: z.string().optional(),
+		fallbackHandler: z.string().optional(),
+		nonce: z.number().optional(),
+	}).optional().describe("Safe metadata"),
 	role: z.string().default("primary").describe("Role of treasury in project"),
 	description: z.string().optional().describe("Project-specific description"),
 });

@@ -520,24 +520,48 @@ app.openapi(addProjectTreasury, async (c) => {
 			if (existingTreasury) {
 				treasuryId = existingTreasury.id;
 			} else {
-				// Create new treasury
-				const [newTreasury] = await db
-					.insert(treasuries)
-					.values({
-						address: data.address,
-						name: data.name,
-						purpose: data.purpose,
-						chain: data.chain || "mainnet",
-						type: data.type || "safe",
-						owners: [],
-					})
-					.returning();
-				
-				if (!newTreasury) {
-					return c.json({ error: "Failed to create treasury" }, 500);
+				const treasuryData: any = {
+					address: data.address,
+					name: data.name,
+					purpose: data.purpose,
+					chain: data.chain || "mainnet",
+					type: data.type || "safe",
+					owners: data.owners || [],
+				};
+
+				if (data.type === "safe" || !data.type) {
+					if (data.threshold) {
+						treasuryData.threshold = data.threshold;
+					}
+					if (data.metadata) {
+						treasuryData.metadata = data.metadata;
+					}
 				}
-				
-				treasuryId = newTreasury.id;
+
+				try {
+					const [newTreasury] = await db
+						.insert(treasuries)
+						.values(treasuryData)
+						.returning();
+					
+					if (!newTreasury) {
+						return c.json({ error: "Failed to create treasury" }, 500);
+					}
+					
+					treasuryId = newTreasury.id;
+				} catch (insertError: any) {
+					console.error("Treasury creation error:", insertError);
+					
+					// Provide more specific error messages
+					if (insertError.code === "23505") {
+						return c.json({ error: "Treasury with this address already exists" }, 400);
+					}
+					
+					return c.json({ 
+						error: "Failed to create treasury", 
+						details: insertError.message || "Database insertion failed"
+					}, 500);
+				}
 			}
 		}
 		
