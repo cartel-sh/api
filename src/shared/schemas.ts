@@ -106,7 +106,7 @@ export const PracticeLeaderboardEntrySchema = z.object({
 // ============================================
 
 export const CreateApplicationSchema = z.object({
-	messageId: z.string(),
+	messageId: z.string().default("pending"),
 	walletAddress: z.string(),
 	ensName: z.string().nullable().optional(),
 	github: z.string().nullable().optional(),

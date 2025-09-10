@@ -9,6 +9,52 @@ import {
 	ErrorResponseSchema,
 } from "../../../shared/schemas";
 
+async function notifyBotWebhook(applicationId: string, applicationNumber: number, logger: any) {
+	const webhookUrl = process.env.ONJO_WEBHOOK_URL;
+	const webhookSecret = process.env.ONJO_WEBHOOK_SECRET;
+	
+	if (!webhookUrl) {
+		logger.debug("No webhook URL configured, skipping bot notification");
+		return;
+	}
+
+	try {
+		const response = await fetch(webhookUrl, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				...(webhookSecret && { "Authorization": `Bearer ${webhookSecret}` }),
+			},
+			body: JSON.stringify({
+				applicationId,
+				applicationNumber,
+				type: 'application_created'
+			}),
+		});
+
+		if (response.ok) {
+			logger.info("Bot webhook notification sent successfully", {
+				applicationId,
+				applicationNumber,
+				webhookUrl: webhookUrl.replace(/\/\/.*@/, '//***@'), // mask credentials in logs
+			});
+		} else {
+			logger.warn("Bot webhook notification failed", {
+				applicationId,
+				applicationNumber,
+				status: response.status,
+				statusText: response.statusText,
+			});
+		}
+	} catch (error) {
+		logger.warn("Bot webhook notification error", {
+			applicationId,
+			applicationNumber,
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+}
+
 type Variables = {
 	userId?: string;
 	logger?: any;
@@ -105,6 +151,10 @@ app.openapi(createApplicationRoute, async (c) => {
 			applicationId: application.id,
 			applicationNumber: nextNumber,
 			walletAddress: data.walletAddress ? "***masked***" : undefined,
+		});
+
+		notifyBotWebhook(application.id, nextNumber, logger).catch(error => {
+			logger.error("Webhook notification failed", { applicationId: application.id, error });
 		});
 
 		return c.json({

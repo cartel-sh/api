@@ -295,15 +295,18 @@ class ApplicationsNamespace {
 	constructor(private client: CartelClient) { }
 
 	async create(params: {
-		messageId: string;
-		guildId: string;
-		channelId: string;
-		applicantId: string;
-		applicantName: string;
-		responses: Record<string, string>;
-		applicationNumber: number;
-	}): Promise<Application> {
-		return this.client.request<Application>("/api/users/applications", {
+		messageId?: string;
+		walletAddress: string;
+		ensName?: string | null;
+		github?: string | null;
+		farcaster?: string | null;
+		lens?: string | null;
+		twitter?: string | null;
+		excitement: string;
+		motivation: string;
+		signature: string;
+	}): Promise<{ id: string; applicationNumber: number }> {
+		return this.client.request<{ id: string; applicationNumber: number }>("/api/users/applications", {
 			method: "POST",
 			body: JSON.stringify(params),
 		});
@@ -318,7 +321,7 @@ class ApplicationsNamespace {
 	}
 
 	async getByNumber(applicationNumber: number): Promise<Application> {
-		return this.client.request<Application>(`/api/users/applications/number/${applicationNumber}`);
+		return this.client.request<Application>(`/api/users/applications/by-number/${applicationNumber}`);
 	}
 
 	async updateStatus(applicationId: string, status: "approved" | "rejected"): Promise<Application> {
