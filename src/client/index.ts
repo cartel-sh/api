@@ -23,6 +23,9 @@ export type {
 	UserIdentity,
 	Project,
 	ProjectWithUser,
+	WebhookEventPayload,
+	WebhookSubscription,
+	CreateWebhookSubscription,
 } from "../shared/schemas";
 
 // Export Zod schemas for validation
