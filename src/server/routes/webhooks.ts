@@ -20,6 +20,7 @@ import {
 type Variables = {
 	userId?: string;
 	userRole?: string;
+	apiKeyId?: string;
 	logger?: any;
 };
 
@@ -75,14 +76,19 @@ const createWebhookRoute = createRoute({
 app.openapi(createWebhookRoute, async (c) => {
 	const logger = c.get("logger");
 	const userId = c.get("userId");
+	const apiKeyId = c.get("apiKeyId");
 	const data = c.req.valid("json") as any;
 
-	if (!userId) {
+	if (!userId && !apiKeyId) {
 		return c.json({ error: "Authentication required" }, 401);
 	}
 
+	const createdBy = userId || "system";
+
 	logger.info("Creating webhook subscription", {
 		userId,
+		apiKeyId,
+		createdBy,
 		name: data.name,
 		events: data.events,
 		url: data.url?.replace(/^https?:\/\/[^/]+/, '[REDACTED]'), // Mask domain for privacy
@@ -93,7 +99,7 @@ app.openapi(createWebhookRoute, async (c) => {
 			.insert(webhookSubscriptions)
 			.values({
 				...data,
-				createdBy: userId,
+				createdBy: createdBy,
 			})
 			.returning();
 
