@@ -3,7 +3,7 @@ import { Scalar } from "@scalar/hono-api-reference";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { config } from "dotenv";
-import { combinedAuth } from "./middleware/auth";
+import { combinedAuth, apiKeyAuth } from "./middleware/auth";
 
 import packageJson from "../../package.json" with { type: "json" };
 import vanishDiscord from "./routes/vanish/discord";
@@ -67,7 +67,7 @@ app.use("/api/users/*", combinedAuth);
 app.use("/api/admin/*", combinedAuth);
 app.use("/api/projects/*", combinedAuth);
 app.use("/api/treasuries/*", combinedAuth);
-app.use("/api/webhooks/*", combinedAuth);
+app.use("/api/webhooks/*", apiKeyAuth);
 
 app.route("/api/vanish/discord", vanishDiscord);
 app.route("/api/sessions/practice", practice);
