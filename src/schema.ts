@@ -814,3 +814,145 @@ export interface NewTreasury extends InferInsertModel<typeof treasuries> {}
 
 export interface ProjectTreasury extends InferSelectModel<typeof projectTreasuries> {}
 export interface NewProjectTreasury extends InferInsertModel<typeof projectTreasuries> {}
+
+// ============================================
+// Webhook Subscriptions
+// ============================================
+
+export const webhookSubscriptions = pgTable(
+	"webhook_subscriptions",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		name: text("name").notNull(),
+		url: text("url").notNull(),
+		secret: text("secret"), // Bearer token for webhook authentication
+		events: text("events").array().notNull().default(sql`ARRAY[]::text[]`), // Event types to subscribe to
+		isActive: boolean("is_active").notNull().default(true),
+		metadata: json("metadata").$type<{
+			retryAttempts?: number;
+			retryDelay?: number;
+			timeout?: number;
+			filters?: Record<string, any>;
+			description?: string;
+		}>(),
+		createdBy: uuid("created_by")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+		updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+	},
+	(table) => [
+		index("webhook_subscriptions_created_by_idx").on(table.createdBy),
+		index("webhook_subscriptions_active_idx")
+			.on(table.isActive)
+			.where(sql`${table.isActive} = true`),
+		index("webhook_subscriptions_events_idx").using("gin", table.events),
+		// Users can manage their own webhooks
+		pgPolicy("webhook_subscriptions_select_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "select",
+			using: sql`created_by = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		pgPolicy("webhook_subscriptions_insert_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "insert",
+			withCheck: sql`created_by = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		pgPolicy("webhook_subscriptions_update_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "update",
+			using: sql`created_by = current_setting('app.current_user_id', true)::uuid`,
+			withCheck: sql`created_by = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		pgPolicy("webhook_subscriptions_delete_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "delete",
+			using: sql`created_by = current_setting('app.current_user_id', true)::uuid`,
+		}),
+		// Admins can manage all webhooks
+		pgPolicy("webhook_subscriptions_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "all",
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
+	],
+).enableRLS();
+
+export const webhookDeliveries = pgTable(
+	"webhook_deliveries", 
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		webhookId: uuid("webhook_id")
+			.notNull()
+			.references(() => webhookSubscriptions.id, { onDelete: "cascade" }),
+		eventType: text("event_type").notNull(),
+		eventId: uuid("event_id").notNull(), // Unique identifier for the event
+		payload: json("payload").notNull(), // The webhook payload that was sent
+		url: text("url").notNull(), // Snapshot of URL at delivery time
+		statusCode: integer("status_code"), // HTTP response status
+		responseBody: text("response_body"), // Response from webhook endpoint (truncated)
+		attempts: integer("attempts").notNull().default(1),
+		deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+		failedAt: timestamp("failed_at", { withTimezone: true }),
+		nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+		error: text("error"), // Error message if delivery failed
+		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+	},
+	(table) => [
+		index("webhook_deliveries_webhook_id_idx").on(table.webhookId),
+		index("webhook_deliveries_event_type_idx").on(table.eventType),
+		index("webhook_deliveries_event_id_idx").on(table.eventId),
+		index("webhook_deliveries_status_idx").on(table.statusCode),
+		index("webhook_deliveries_retry_idx")
+			.on(table.nextRetryAt)
+			.where(sql`${table.nextRetryAt} IS NOT NULL`),
+		// Only admins can view delivery logs for privacy/security
+		pgPolicy("webhook_deliveries_admin", {
+			as: "permissive",
+			to: adminRole,
+			for: "all", 
+			using: sql`true`,
+			withCheck: sql`true`,
+		}),
+		// Users can view delivery logs for their own webhooks
+		pgPolicy("webhook_deliveries_select_own", {
+			as: "permissive",
+			to: authenticatedRole,
+			for: "select",
+			using: sql`EXISTS (
+				SELECT 1 FROM ${webhookSubscriptions}
+				WHERE ${webhookSubscriptions}.id = webhook_id
+				AND ${webhookSubscriptions}.created_by = current_setting('app.current_user_id', true)::uuid
+			)`,
+		}),
+	],
+).enableRLS();
+
+export const webhookSubscriptionsRelations = relations(webhookSubscriptions, ({ one, many }) => ({
+	createdByUser: one(users, {
+		fields: [webhookSubscriptions.createdBy],
+		references: [users.id],
+	}),
+	deliveries: many(webhookDeliveries),
+}));
+
+export const webhookDeliveriesRelations = relations(webhookDeliveries, ({ one }) => ({
+	webhook: one(webhookSubscriptions, {
+		fields: [webhookDeliveries.webhookId],
+		references: [webhookSubscriptions.id],
+	}),
+}));
+
+export interface WebhookSubscription extends InferSelectModel<typeof webhookSubscriptions> {
+	events: string[];
+}
+export interface NewWebhookSubscription extends InferInsertModel<typeof webhookSubscriptions> {}
+
+export interface WebhookDelivery extends InferSelectModel<typeof webhookDeliveries> {}
+export interface NewWebhookDelivery extends InferInsertModel<typeof webhookDeliveries> {}

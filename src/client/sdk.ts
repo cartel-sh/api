@@ -28,6 +28,14 @@ import type {
 	AddProjectTreasury,
 	TreasuryQuery,
 	TreasuryWithProjects,
+	CreateWebhookSubscription,
+	UpdateWebhookSubscription,
+	WebhookSubscription,
+	WebhookDelivery,
+	WebhookEventType,
+	TestWebhook,
+	WebhookQuery,
+	WebhookDeliveryQuery,
 } from "../shared/schemas";
 
 export type {
@@ -48,6 +56,14 @@ export type {
 	AddProjectTreasury,
 	TreasuryQuery,
 	TreasuryWithProjects,
+	CreateWebhookSubscription,
+	UpdateWebhookSubscription,
+	WebhookSubscription,
+	WebhookDelivery,
+	WebhookEventType,
+	TestWebhook,
+	WebhookQuery,
+	WebhookDeliveryQuery,
 } from "../shared/schemas";
 
 export interface TokenStorage {
@@ -661,6 +677,75 @@ class LogsNamespace {
 	}
 }
 
+class WebhooksNamespace {
+	constructor(private client: CartelClient) { }
+
+	async create(params: CreateWebhookSubscription): Promise<WebhookSubscription> {
+		return this.client.request<WebhookSubscription>("/api/webhooks", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
+	}
+
+	async list(params?: WebhookQuery): Promise<WebhookSubscription[]> {
+		const searchParams = new URLSearchParams();
+		if (params?.active) {
+			searchParams.set("active", params.active);
+		}
+		if (params?.events) {
+			searchParams.set("events", params.events);
+		}
+		if (params?.limit) searchParams.set("limit", params.limit.toString());
+		if (params?.offset) searchParams.set("offset", params.offset.toString());
+
+		const queryString = searchParams.toString();
+		const endpoint = queryString ? `/api/webhooks?${queryString}` : "/api/webhooks";
+
+		return this.client.request<WebhookSubscription[]>(endpoint);
+	}
+
+	async get(webhookId: string): Promise<WebhookSubscription> {
+		return this.client.request<WebhookSubscription>(`/api/webhooks/${webhookId}`);
+	}
+
+	async update(
+		webhookId: string,
+		params: UpdateWebhookSubscription
+	): Promise<WebhookSubscription> {
+		return this.client.request<WebhookSubscription>(`/api/webhooks/${webhookId}`, {
+			method: "PATCH",
+			body: JSON.stringify(params),
+		});
+	}
+
+	async delete(webhookId: string): Promise<SuccessResponse> {
+		return this.client.request<SuccessResponse>(`/api/webhooks/${webhookId}`, {
+			method: "DELETE",
+		});
+	}
+
+	async test(params: TestWebhook): Promise<{ success: boolean; message: string }> {
+		return this.client.request<{ success: boolean; message: string }>("/api/webhooks/test", {
+			method: "POST",
+			body: JSON.stringify(params),
+		});
+	}
+
+	async getDeliveries(params?: WebhookDeliveryQuery): Promise<WebhookDelivery[]> {
+		const searchParams = new URLSearchParams();
+		if (params?.webhookId) searchParams.set("webhookId", params.webhookId);
+		if (params?.eventType) searchParams.set("eventType", params.eventType);
+		if (params?.status) searchParams.set("status", params.status);
+		if (params?.limit) searchParams.set("limit", params.limit.toString());
+		if (params?.offset) searchParams.set("offset", params.offset.toString());
+
+		const queryString = searchParams.toString();
+		const endpoint = queryString ? `/api/webhooks/deliveries?${queryString}` : "/api/webhooks/deliveries";
+
+		return this.client.request<WebhookDelivery[]>(endpoint);
+	}
+}
+
 export class CartelClient {
 	tokenStorage: TokenStorage;
 	private refreshPromise: Promise<void> | null = null;
@@ -673,6 +758,7 @@ export class CartelClient {
 	projects: ProjectsNamespace;
 	treasuries: TreasuriesNamespace;
 	logs: LogsNamespace;
+	webhooks: WebhooksNamespace;
 
 	constructor(
 		private baseUrl: string,
@@ -693,6 +779,7 @@ export class CartelClient {
 		this.projects = new ProjectsNamespace(this);
 		this.treasuries = new TreasuriesNamespace(this);
 		this.logs = new LogsNamespace(this);
+		this.webhooks = new WebhooksNamespace(this);
 	}
 
 	async request<T = any>(

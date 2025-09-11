@@ -554,5 +554,114 @@ export type AddProjectTreasury = z.infer<typeof AddProjectTreasurySchema>;
 export type TreasuryQuery = z.infer<typeof TreasuryQuerySchema>;
 export type TreasuryWithProjects = z.infer<typeof TreasuryWithProjectsSchema>;
 
-// Also export database types for compatibility
-export type { NewTreasury, NewProjectTreasury } from "../schema";
+// ============================================
+// Webhook Schemas
+// ============================================
+
+export const WebhookEventTypes = z.enum([
+	"application_created",
+	"application_approved", 
+	"application_rejected",
+	"user_registered",
+	"project_created",
+	"project_updated",
+	"practice_session_started",
+	"practice_session_completed",
+]);
+
+export const CreateWebhookSubscriptionSchema = z.object({
+	name: z.string().min(1).max(255).describe("Friendly name for the webhook"),
+	url: z.string().url().describe("Webhook endpoint URL"),
+	secret: z.string().optional().describe("Bearer token for authentication"),
+	events: z.array(WebhookEventTypes).min(1).describe("Event types to subscribe to"),
+	metadata: z.object({
+		retryAttempts: z.number().min(0).max(10).default(3).optional(),
+		retryDelay: z.number().min(1000).max(300000).default(5000).optional(), // 1s to 5min
+		timeout: z.number().min(1000).max(30000).default(10000).optional(), // 1s to 30s
+		filters: z.record(z.string(), z.any()).optional(),
+		description: z.string().max(500).optional(),
+	}).optional(),
+});
+
+export const UpdateWebhookSubscriptionSchema = CreateWebhookSubscriptionSchema.partial().extend({
+	isActive: z.boolean().optional(),
+});
+
+export const WebhookSubscriptionSchema = z.object({
+	id: z.string().uuid(),
+	name: z.string(),
+	url: z.string(),
+	secret: z.string().nullable().optional(),
+	events: z.array(z.string()),
+	isActive: z.boolean(),
+	metadata: z.object({
+		retryAttempts: z.number().optional(),
+		retryDelay: z.number().optional(),
+		timeout: z.number().optional(),
+		filters: z.record(z.string(), z.any()).optional(),
+		description: z.string().optional(),
+	}).nullable().optional(),
+	createdBy: z.string().uuid(),
+	createdAt: z.string().datetime(),
+	updatedAt: z.string().datetime(),
+});
+
+export const WebhookDeliverySchema = z.object({
+	id: z.string().uuid(),
+	webhookId: z.string().uuid(),
+	eventType: z.string(),
+	eventId: z.string().uuid(),
+	payload: z.any(),
+	url: z.string(),
+	statusCode: z.number().nullable(),
+	responseBody: z.string().nullable(),
+	attempts: z.number(),
+	deliveredAt: z.string().datetime().nullable(),
+	failedAt: z.string().datetime().nullable(),
+	nextRetryAt: z.string().datetime().nullable(),
+	error: z.string().nullable(),
+	createdAt: z.string().datetime(),
+});
+
+export const WebhookEventPayloadSchema = z.object({
+	eventType: WebhookEventTypes,
+	eventId: z.string().uuid(),
+	timestamp: z.string().datetime(),
+	data: z.any(),
+	metadata: z.object({
+		source: z.string().default("api"),
+		version: z.string().default("1.0"),
+	}),
+});
+
+export const TestWebhookSchema = z.object({
+	eventType: WebhookEventTypes.optional().default("application_created"),
+	testData: z.any().optional(),
+});
+
+export const WebhookQuerySchema = z.object({
+	events: z.string().optional().describe("Comma-separated event types to filter by"),
+	active: z.enum(["true", "false", "all"]).default("all"),
+	limit: z.coerce.number().min(1).max(100).default(50),
+	offset: z.coerce.number().min(0).default(0),
+});
+
+export const WebhookDeliveryQuerySchema = z.object({
+	webhookId: z.string().uuid().optional(),
+	eventType: z.string().optional(),
+	status: z.enum(["success", "failed", "pending"]).optional(),
+	limit: z.coerce.number().min(1).max(100).default(50),
+	offset: z.coerce.number().min(0).default(0),
+});
+
+export type WebhookEventType = z.infer<typeof WebhookEventTypes>;
+export type CreateWebhookSubscription = z.infer<typeof CreateWebhookSubscriptionSchema>;
+export type UpdateWebhookSubscription = z.infer<typeof UpdateWebhookSubscriptionSchema>;
+export type WebhookSubscription = z.infer<typeof WebhookSubscriptionSchema>;
+export type WebhookDelivery = z.infer<typeof WebhookDeliverySchema>;
+export type WebhookEventPayload = z.infer<typeof WebhookEventPayloadSchema>;
+export type TestWebhook = z.infer<typeof TestWebhookSchema>;
+export type WebhookQuery = z.infer<typeof WebhookQuerySchema>;
+export type WebhookDeliveryQuery = z.infer<typeof WebhookDeliveryQuerySchema>;
+
+export type { NewTreasury, NewProjectTreasury, WebhookSubscription as DBWebhookSubscription, NewWebhookSubscription, WebhookDelivery as DBWebhookDelivery, NewWebhookDelivery } from "../schema";
