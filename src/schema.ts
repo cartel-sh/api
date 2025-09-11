@@ -276,8 +276,8 @@ export const applications = pgTable(
 	"applications",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
-		applicationNumber: integer("application_number").notNull().unique(),
-		messageId: text("message_id").notNull().unique(),
+		applicationNumber: integer("application_number").notNull(),
+		messageId: text("message_id").notNull(),
 		walletAddress: text("wallet_address").notNull(),
 		ensName: text("ens_name"),
 		github: text("github"),
