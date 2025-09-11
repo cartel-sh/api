@@ -158,18 +158,21 @@ const listWebhooksRoute = createRoute({
 app.openapi(listWebhooksRoute, async (c) => {
 	const logger = c.get("logger");
 	const userId = c.get("userId");
+	const apiKeyId = c.get("apiKeyId");
 	const query = c.req.valid("query") as any;
 	const { events, active, limit, offset } = query;
 
-	if (!userId) {
+	if (!userId && !apiKeyId) {
 		return c.json({ error: "Authentication required" }, 401);
 	}
 
-	logger.info("Listing webhook subscriptions", { userId, active, limit, offset });
+	const createdBy = userId || "system";
+
+	logger.info("Listing webhook subscriptions", { userId, apiKeyId, createdBy, active, limit, offset });
 
 	try {
 		// Build where conditions
-		const conditions = [eq(webhookSubscriptions.createdBy, userId)];
+		const conditions = [eq(webhookSubscriptions.createdBy, createdBy)];
 
 		// Filter by active status
 		if (active === "true") {
@@ -250,11 +253,14 @@ const getWebhookRoute = createRoute({
 app.openapi(getWebhookRoute, async (c) => {
 	const logger = c.get("logger");
 	const userId = c.get("userId");
+	const apiKeyId = c.get("apiKeyId");
 	const { id } = c.req.valid("param") as any;
 
-	if (!userId) {
+	if (!userId && !apiKeyId) {
 		return c.json({ error: "Authentication required" }, 401);
 	}
+
+	const createdBy = userId || "system";
 
 	try {
 		const [webhook] = await db
@@ -263,7 +269,7 @@ app.openapi(getWebhookRoute, async (c) => {
 			.where(
 				and(
 					eq(webhookSubscriptions.id, id),
-					eq(webhookSubscriptions.createdBy, userId)
+					eq(webhookSubscriptions.createdBy, createdBy)
 				)
 			);
 
@@ -333,14 +339,17 @@ const updateWebhookRoute = createRoute({
 app.openapi(updateWebhookRoute, async (c) => {
 	const logger = c.get("logger");
 	const userId = c.get("userId");
+	const apiKeyId = c.get("apiKeyId");
 	const { id } = c.req.valid("param") as any;
 	const data = c.req.valid("json") as any;
 
-	if (!userId) {
+	if (!userId && !apiKeyId) {
 		return c.json({ error: "Authentication required" }, 401);
 	}
 
-	logger.info("Updating webhook subscription", { webhookId: id, userId });
+	const createdBy = userId || "system";
+
+	logger.info("Updating webhook subscription", { webhookId: id, userId, apiKeyId, createdBy });
 
 	try {
 		const [webhook] = await db
@@ -352,7 +361,7 @@ app.openapi(updateWebhookRoute, async (c) => {
 			.where(
 				and(
 					eq(webhookSubscriptions.id, id),
-					eq(webhookSubscriptions.createdBy, userId)
+					eq(webhookSubscriptions.createdBy, createdBy)
 				)
 			)
 			.returning();
@@ -418,13 +427,16 @@ const deleteWebhookRoute = createRoute({
 app.openapi(deleteWebhookRoute, async (c) => {
 	const logger = c.get("logger");
 	const userId = c.get("userId");
+	const apiKeyId = c.get("apiKeyId");
 	const { id } = c.req.valid("param") as any;
 
-	if (!userId) {
+	if (!userId && !apiKeyId) {
 		return c.json({ error: "Authentication required" }, 401);
 	}
 
-	logger.info("Deleting webhook subscription", { webhookId: id, userId });
+	const createdBy = userId || "system";
+
+	logger.info("Deleting webhook subscription", { webhookId: id, userId, apiKeyId, createdBy });
 
 	try {
 		// First check if the webhook exists and belongs to the user
@@ -434,7 +446,7 @@ app.openapi(deleteWebhookRoute, async (c) => {
 			.where(
 				and(
 					eq(webhookSubscriptions.id, id),
-					eq(webhookSubscriptions.createdBy, userId)
+					eq(webhookSubscriptions.createdBy, createdBy)
 				)
 			)
 			.limit(1);
@@ -449,7 +461,7 @@ app.openapi(deleteWebhookRoute, async (c) => {
 			.where(
 				and(
 					eq(webhookSubscriptions.id, id),
-					eq(webhookSubscriptions.createdBy, userId)
+					eq(webhookSubscriptions.createdBy, createdBy)
 				)
 			);
 
@@ -516,14 +528,17 @@ const testWebhookRoute = createRoute({
 app.openapi(testWebhookRoute, async (c) => {
 	const logger = c.get("logger");
 	const userId = c.get("userId");
+	const apiKeyId = c.get("apiKeyId");
 	const { id } = c.req.valid("param") as any;
 	const { eventType, testData } = c.req.valid("json") as any;
 
-	if (!userId) {
+	if (!userId && !apiKeyId) {
 		return c.json({ error: "Authentication required" }, 401);
 	}
 
-	logger.info("Testing webhook subscription", { webhookId: id, eventType });
+	const createdBy = userId || "system";
+
+	logger.info("Testing webhook subscription", { webhookId: id, eventType, userId, apiKeyId, createdBy });
 
 	try {
 		const [webhook] = await db
@@ -532,7 +547,7 @@ app.openapi(testWebhookRoute, async (c) => {
 			.where(
 				and(
 					eq(webhookSubscriptions.id, id),
-					eq(webhookSubscriptions.createdBy, userId)
+					eq(webhookSubscriptions.createdBy, createdBy)
 				)
 			);
 
