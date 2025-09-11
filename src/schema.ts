@@ -836,7 +836,6 @@ export const webhookSubscriptions = pgTable(
 			description?: string;
 		}>(),
 		createdBy: uuid("created_by")
-			.notNull()
 			.references(() => users.id, { onDelete: "cascade" }),
 		createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 		updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

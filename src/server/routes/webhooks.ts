@@ -83,24 +83,23 @@ app.openapi(createWebhookRoute, async (c) => {
 		return c.json({ error: "Authentication required" }, 401);
 	}
 
-	const createdBy = userId || "system";
-
 	logger.info("Creating webhook subscription", {
 		userId,
 		apiKeyId,
-		createdBy,
 		name: data.name,
 		events: data.events,
 		url: data.url?.replace(/^https?:\/\/[^/]+/, '[REDACTED]'), // Mask domain for privacy
 	});
 
 	try {
+		const insertData = { ...data };
+		if (userId) {
+			insertData.createdBy = userId;
+		}
+
 		const [webhook] = await db
 			.insert(webhookSubscriptions)
-			.values({
-				...data,
-				createdBy: createdBy,
-			})
+			.values(insertData)
 			.returning();
 
 		if (!webhook) {
@@ -166,22 +165,20 @@ app.openapi(listWebhooksRoute, async (c) => {
 		return c.json({ error: "Authentication required" }, 401);
 	}
 
-	const createdBy = userId || "system";
-
-	logger.info("Listing webhook subscriptions", { userId, apiKeyId, createdBy, active, limit, offset });
+	logger.info("Listing webhook subscriptions", { userId, apiKeyId, active, limit, offset });
 
 	try {
-		// Build where conditions
-		const conditions = [eq(webhookSubscriptions.createdBy, createdBy)];
+		const conditions = [];
+		if (userId) {
+			conditions.push(eq(webhookSubscriptions.createdBy, userId));
+		}
 
-		// Filter by active status
 		if (active === "true") {
 			conditions.push(eq(webhookSubscriptions.isActive, true));
 		} else if (active === "false") {
 			conditions.push(eq(webhookSubscriptions.isActive, false));
 		}
 
-		// Filter by event types
 		if (events) {
 			const eventTypes = events.split(",");
 			conditions.push(sql`${webhookSubscriptions.events} && ${eventTypes}`);
@@ -260,18 +257,16 @@ app.openapi(getWebhookRoute, async (c) => {
 		return c.json({ error: "Authentication required" }, 401);
 	}
 
-	const createdBy = userId || "system";
-
 	try {
+		const conditions = [eq(webhookSubscriptions.id, id)];
+		if (userId) {
+			conditions.push(eq(webhookSubscriptions.createdBy, userId));
+		}
+
 		const [webhook] = await db
 			.select()
 			.from(webhookSubscriptions)
-			.where(
-				and(
-					eq(webhookSubscriptions.id, id),
-					eq(webhookSubscriptions.createdBy, createdBy)
-				)
-			);
+			.where(and(...conditions));
 
 		if (!webhook) {
 			return c.json({ error: "Webhook subscription not found" }, 404);
@@ -347,23 +342,21 @@ app.openapi(updateWebhookRoute, async (c) => {
 		return c.json({ error: "Authentication required" }, 401);
 	}
 
-	const createdBy = userId || "system";
-
-	logger.info("Updating webhook subscription", { webhookId: id, userId, apiKeyId, createdBy });
+	logger.info("Updating webhook subscription", { webhookId: id, userId, apiKeyId });
 
 	try {
+		const conditions = [eq(webhookSubscriptions.id, id)];
+		if (userId) {
+			conditions.push(eq(webhookSubscriptions.createdBy, userId));
+		}
+
 		const [webhook] = await db
 			.update(webhookSubscriptions)
 			.set({
 				...data,
 				updatedAt: new Date(),
 			})
-			.where(
-				and(
-					eq(webhookSubscriptions.id, id),
-					eq(webhookSubscriptions.createdBy, createdBy)
-				)
-			)
+			.where(and(...conditions))
 			.returning();
 
 		if (!webhook) {
@@ -434,28 +427,24 @@ app.openapi(deleteWebhookRoute, async (c) => {
 		return c.json({ error: "Authentication required" }, 401);
 	}
 
-	const createdBy = userId || "system";
-
-	logger.info("Deleting webhook subscription", { webhookId: id, userId, apiKeyId, createdBy });
+	logger.info("Deleting webhook subscription", { webhookId: id, userId, apiKeyId });
 
 	try {
-		// First check if the webhook exists and belongs to the user
+		const conditions = [eq(webhookSubscriptions.id, id)];
+		if (userId) {
+			conditions.push(eq(webhookSubscriptions.createdBy, userId));
+		}
+
 		const webhook = await db
 			.select()
 			.from(webhookSubscriptions)
-			.where(
-				and(
-					eq(webhookSubscriptions.id, id),
-					eq(webhookSubscriptions.createdBy, createdBy)
-				)
-			)
+			.where(and(...conditions))
 			.limit(1);
 
 		if (webhook.length === 0) {
 			return c.json({ error: "Webhook subscription not found" }, 404);
 		}
 
-		// Delete the webhook
 		await db
 			.delete(webhookSubscriptions)
 			.where(
@@ -536,20 +525,18 @@ app.openapi(testWebhookRoute, async (c) => {
 		return c.json({ error: "Authentication required" }, 401);
 	}
 
-	const createdBy = userId || "system";
-
-	logger.info("Testing webhook subscription", { webhookId: id, eventType, userId, apiKeyId, createdBy });
+	logger.info("Testing webhook subscription", { webhookId: id, eventType, userId, apiKeyId });
 
 	try {
+		const conditions = [eq(webhookSubscriptions.id, id)];
+		if (userId) {
+			conditions.push(eq(webhookSubscriptions.createdBy, userId));
+		}
+
 		const [webhook] = await db
 			.select()
 			.from(webhookSubscriptions)
-			.where(
-				and(
-					eq(webhookSubscriptions.id, id),
-					eq(webhookSubscriptions.createdBy, createdBy)
-				)
-			);
+			.where(and(...conditions));
 
 		if (!webhook) {
 			return c.json({ error: "Webhook subscription not found" }, 404);
@@ -615,48 +602,45 @@ const listDeliveriesRoute = createRoute({
 app.openapi(listDeliveriesRoute, async (c) => {
 	const logger = c.get("logger");
 	const userId = c.get("userId");
+	const apiKeyId = c.get("apiKeyId");
 	const { id } = c.req.valid("param") as any;
 	const { eventType, status, limit, offset } = c.req.valid("query") as any;
 
-	if (!userId) {
+	if (!userId && !apiKeyId) {
 		return c.json({ error: "Authentication required" }, 401);
 	}
 
 	try {
-		// Verify user owns the webhook
+		const conditions = [eq(webhookSubscriptions.id, id)];
+		if (userId) {
+			conditions.push(eq(webhookSubscriptions.createdBy, userId));
+		}
+
 		const [webhook] = await db
 			.select()
 			.from(webhookSubscriptions)
-			.where(
-				and(
-					eq(webhookSubscriptions.id, id),
-					eq(webhookSubscriptions.createdBy, userId)
-				)
-			);
+			.where(and(...conditions));
 
 		if (!webhook) {
 			return c.json({ error: "Webhook subscription not found" }, 404);
 		}
 
-		// Build where conditions
-		const conditions = [eq(webhookDeliveries.webhookId, id)];
+		const deliveryConditions = [eq(webhookDeliveries.webhookId, id)];
 
-		// Filter by event type
 		if (eventType) {
-			conditions.push(eq(webhookDeliveries.eventType, eventType));
+			deliveryConditions.push(eq(webhookDeliveries.eventType, eventType));
 		}
 
-		// Filter by status
 		if (status) {
 			switch (status) {
 				case "success":
-					conditions.push(sql`${webhookDeliveries.deliveredAt} IS NOT NULL`);
+					deliveryConditions.push(sql`${webhookDeliveries.deliveredAt} IS NOT NULL`);
 					break;
 				case "failed":
-					conditions.push(sql`${webhookDeliveries.failedAt} IS NOT NULL`);
+					deliveryConditions.push(sql`${webhookDeliveries.failedAt} IS NOT NULL`);
 					break;
 				case "pending":
-					conditions.push(sql`${webhookDeliveries.nextRetryAt} IS NOT NULL`);
+					deliveryConditions.push(sql`${webhookDeliveries.nextRetryAt} IS NOT NULL`);
 					break;
 			}
 		}
@@ -664,7 +648,7 @@ app.openapi(listDeliveriesRoute, async (c) => {
 		const deliveries = await db
 			.select()
 			.from(webhookDeliveries)
-			.where(and(...conditions))
+			.where(and(...deliveryConditions))
 			.orderBy(desc(webhookDeliveries.createdAt))
 			.limit(limit)
 			.offset(offset);

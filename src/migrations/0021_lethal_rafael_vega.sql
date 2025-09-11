@@ -1,0 +1,1 @@
+ALTER TABLE "webhook_subscriptions" ALTER COLUMN "created_by" DROP NOT NULL;
